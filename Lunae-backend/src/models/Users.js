@@ -4,7 +4,16 @@ import bcrypt from "bcryptjs";
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },
-  password: { type: String, required: true }
+  password: { type: String, required: true },
+  // Campos del perfil
+  displayName: { type: String, required: false },
+  birthDate: { type: Date, required: false },
+  location: {
+    latitude: { type: Number, required: false },
+    longitude: { type: Number, required: false },
+    address: { type: String, required: false }
+  },
+  profileCompleted: { type: Boolean, default: false }
 }, {
   timestamps: true
 });

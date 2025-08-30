@@ -11,13 +11,29 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     if (isLoading) return;
 
     const inAuthGroup = segments[0] === '(tabs)';
+    const inOnboardingGroup = segments[0] === 'onboarding';
+    const inAuthScreens = segments[0] === 'login' || segments[0] === 'register';
 
     if (!user && inAuthGroup) {
       // Usuario no autenticado intentando acceder a rutas protegidas
       router.replace('/login');
-    } else if (user && !inAuthGroup) {
-      // Usuario autenticado en pantallas de auth, redirigir a tabs
-      router.replace('/(tabs)');
+    } else if (user && inAuthScreens) {
+      // Usuario autenticado en pantallas de auth, verificar si necesita onboarding
+      if (!user.profileCompleted) {
+        router.replace('/onboarding/welcome');
+      } else {
+        router.replace('/(tabs)');
+      }
+    } else if (user && !inAuthGroup && !inOnboardingGroup && !inAuthScreens) {
+      // Usuario autenticado pero no en ninguna pantalla específica
+      if (!user.profileCompleted) {
+        router.replace('/onboarding/welcome');
+      } else {
+        router.replace('/(tabs)');
+      }
+    } else if (user && inAuthGroup && !user.profileCompleted) {
+      // Usuario autenticado en tabs pero sin perfil completo
+      router.replace('/onboarding/welcome');
     }
   }, [user, isLoading, segments]);
 

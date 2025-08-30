@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { connectDB } from "./config/db.js";
 import userRoutes from "./routes/userRoutes.js";
+import profileRoutes from "./routes/profileRoutes.js";
 
 dotenv.config();
 
@@ -12,7 +13,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middlewares
-app.use(cors());
+app.use(cors({
+  origin: '*', // Permitir todas las conexiones para desarrollo
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 // Ruta de prueba
@@ -22,6 +27,7 @@ app.get("/", (req, res) => {
 
 // Rutas
 app.use("/api/users", userRoutes);
+app.use("/api/profile", profileRoutes);
 
 // Iniciar servidor
 app.listen(PORT, () => {
