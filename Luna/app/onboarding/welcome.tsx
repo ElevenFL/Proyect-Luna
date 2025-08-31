@@ -1,7 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import { router } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
 
@@ -12,41 +11,25 @@ export default function WelcomeScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#000000', '#1a1a1a']}
-        style={styles.gradient}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.headerText}>Main</Text>
-        </View>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerText}>Main</Text>
+      </View>
 
-        {/* Content */}
-        <View style={styles.content}>
-          <View style={styles.logoContainer}>
-            <Text style={styles.logo}>Lunea</Text>
-            <Text style={styles.welcomeText}>Welcome to the community.</Text>
-          </View>
+      {/* Content */}
+      <View style={styles.content}>
+        <View style={styles.logoContainer}>
+          <Text style={styles.logo}>Lunea</Text>
+          <Text style={styles.welcomeText}>Welcome to the community.</Text>
         </View>
+      </View>
 
-        {/* Progress Indicator */}
-        <View style={styles.progressContainer}>
-          <View style={styles.progressDots}>
-            <View style={[styles.dot, styles.activeDot]} />
-            <View style={styles.dot} />
-            <View style={styles.dot} />
-            <View style={styles.dot} />
-            <View style={styles.dot} />
-          </View>
-        </View>
-
-        {/* Button */}
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.button} onPress={handleNext}>
-            <Text style={styles.buttonText}>Next</Text>
-          </TouchableOpacity>
-        </View>
-      </LinearGradient>
+      {/* Button */}
+      <View style={styles.buttonContainer}>
+        <TouchableOpacity style={styles.button} onPress={handleNext}>
+          <Text style={styles.buttonText}>Next</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -54,9 +37,7 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  gradient: {
-    flex: 1,
+    backgroundColor: '#1a1a1a',
   },
   header: {
     paddingTop: 60,

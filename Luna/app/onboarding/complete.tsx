@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/contexts/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 
 export default function CompleteScreen() {
-  const { displayName, birthDate, location } = useLocalSearchParams();
+  const { displayName, birthDate, gender, profileImage, location } = useLocalSearchParams();
   const { token, updateUserProfile } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
 
@@ -30,6 +29,8 @@ export default function CompleteScreen() {
         body: JSON.stringify({
           displayName: displayName as string,
           birthDate: birthDate as string,
+          gender: gender as string,
+          profileImage: profileImage as string,
           location: locationData,
         }),
       });
@@ -41,6 +42,8 @@ export default function CompleteScreen() {
         updateUserProfile({
           displayName: displayName as string,
           birthDate: birthDate as string,
+          gender: gender as string,
+          profileImage: profileImage as string,
           location: locationData,
           profileCompleted: true
         });
@@ -64,10 +67,6 @@ export default function CompleteScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#000000', '#1a1a1a']}
-        style={styles.gradient}
-      >
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.headerText}>Main</Text>
@@ -90,6 +89,7 @@ export default function CompleteScreen() {
             <View style={[styles.dot, styles.activeDot]} />
             <View style={[styles.dot, styles.activeDot]} />
             <View style={[styles.dot, styles.activeDot]} />
+            <View style={[styles.dot, styles.activeDot]} />
           </View>
         </View>
 
@@ -105,7 +105,6 @@ export default function CompleteScreen() {
             </Text>
           </TouchableOpacity>
         </View>
-      </LinearGradient>
     </View>
   );
 }
@@ -113,9 +112,7 @@ export default function CompleteScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  gradient: {
-    flex: 1,
+    backgroundColor: '#1a1a1a',
   },
   header: {
     paddingTop: 60,

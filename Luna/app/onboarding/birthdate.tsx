@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Dimensions, Platform } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
@@ -24,7 +23,7 @@ export default function BirthdateScreen() {
   const handleNext = () => {
     if (dateText) {
       router.push({
-        pathname: '/onboarding/location',
+        pathname: '/onboarding/gender',
         params: { 
           displayName: displayName as string,
           birthDate: birthDate.toISOString()
@@ -43,10 +42,6 @@ export default function BirthdateScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#000000', '#1a1a1a']}
-        style={styles.gradient}
-      >
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
@@ -76,8 +71,9 @@ export default function BirthdateScreen() {
         <View style={styles.progressContainer}>
           <View style={styles.progressDots}>
             <View style={styles.dot} />
-            <View style={styles.dot} />
             <View style={[styles.dot, styles.activeDot]} />
+            <View style={styles.dot} />
+            <View style={styles.dot} />
             <View style={styles.dot} />
             <View style={styles.dot} />
           </View>
@@ -105,7 +101,6 @@ export default function BirthdateScreen() {
             minimumDate={new Date(1900, 0, 1)}
           />
         )}
-      </LinearGradient>
     </View>
   );
 }
@@ -113,9 +108,7 @@ export default function BirthdateScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  gradient: {
-    flex: 1,
+    backgroundColor: '#1a1a1a',
   },
   header: {
     flexDirection: 'row',

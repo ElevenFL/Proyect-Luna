@@ -1,0 +1,203 @@
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import OptimizedImage from './OptimizedImage';
+
+export interface User {
+  id: string;
+  name: string;
+  age: number;
+  gender: 'male' | 'female' | 'other';
+  profileImage?: string;
+  country: string;
+  countryFlag: string;
+  isOnline: boolean;
+  description: string;
+  lastSeen?: string;
+}
+
+interface UserCardProps {
+  user: User;
+  onPress?: (user: User) => void;
+}
+
+export const UserCard: React.FC<UserCardProps> = ({ user, onPress }) => {
+  const getGenderIcon = () => {
+    switch (user.gender) {
+      case 'male':
+        return '♂';
+      case 'female':
+        return '♀';
+      default:
+        return '⚧';
+    }
+  };
+
+  const getGenderColor = () => {
+    switch (user.gender) {
+      case 'male':
+        return '#4A90E2';
+      case 'female':
+        return '#E24A90';
+      default:
+        return '#FFD700';
+    }
+  };
+
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(word => word.charAt(0))
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
+
+  return (
+    <TouchableOpacity 
+      style={styles.container} 
+      onPress={() => onPress?.(user)}
+      activeOpacity={0.7}
+    >
+      <View style={styles.content}>
+        {/* Profile Picture */}
+        <View style={styles.profileContainer}>
+          {user.profileImage ? (
+            <OptimizedImage 
+              uri={user.profileImage} 
+              style={styles.profileImage}
+              cachePolicy="memory-disk"
+              priority="normal"
+            />
+          ) : (
+            <View style={styles.profilePlaceholder}>
+              <Text style={styles.initialsText}>
+                {getInitials(user.name)}
+              </Text>
+            </View>
+          )}
+          
+          {/* Online Status Indicator */}
+          <View style={[
+            styles.statusIndicator,
+            { backgroundColor: user.isOnline ? '#4CAF50' : '#666666' }
+          ]} />
+        </View>
+
+        {/* User Info */}
+        <View style={styles.userInfo}>
+          <View style={styles.nameRow}>
+            <Text style={styles.userName}>{user.name}</Text>
+            <View style={styles.genderAgeContainer}>
+              <Text style={[styles.genderIcon, { color: getGenderColor() }]}>
+                {getGenderIcon()}
+              </Text>
+              <Text style={styles.age}>{user.age}</Text>
+              <Text style={styles.countryFlag}>{user.countryFlag}</Text>
+            </View>
+          </View>
+          
+          <Text style={styles.description} numberOfLines={2}>
+            {user.description}
+          </Text>
+        </View>
+
+        {/* Online Status */}
+        <View style={styles.statusContainer}>
+          <Text style={styles.statusText}>
+            {user.isOnline ? 'Online' : 'Offline'}
+          </Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  content: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  profileContainer: {
+    position: 'relative',
+    marginRight: 12,
+  },
+  profileImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+  },
+  profilePlaceholder: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#FFD700',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  initialsText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000000',
+  },
+  statusIndicator: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#000000',
+  },
+  userInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginRight: 8,
+  },
+  genderAgeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  genderIcon: {
+    fontSize: 14,
+    marginRight: 4,
+  },
+  age: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    marginRight: 6,
+  },
+  countryFlag: {
+    fontSize: 16,
+  },
+  description: {
+    fontSize: 12,
+    color: '#CCCCCC',
+    lineHeight: 16,
+  },
+  statusContainer: {
+    alignItems: 'flex-end',
+  },
+  statusText: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '500',
+  },
+});
+
+export default UserCard;

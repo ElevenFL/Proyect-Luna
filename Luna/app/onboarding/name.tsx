@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Dimensions } from 'react-native';
 import { router } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
 const { width, height } = Dimensions.get('window');
@@ -24,16 +23,11 @@ export default function NameScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#000000', '#1a1a1a']}
-        style={styles.gradient}
-      >
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#FFD700" />
           </TouchableOpacity>
-          <Text style={styles.headerText}>Main</Text>
         </View>
 
         {/* Content */}
@@ -59,8 +53,9 @@ export default function NameScreen() {
         {/* Progress Indicator */}
         <View style={styles.progressContainer}>
           <View style={styles.progressDots}>
-            <View style={styles.dot} />
             <View style={[styles.dot, styles.activeDot]} />
+            <View style={styles.dot} />
+            <View style={styles.dot} />
             <View style={styles.dot} />
             <View style={styles.dot} />
             <View style={styles.dot} />
@@ -77,7 +72,6 @@ export default function NameScreen() {
             <Text style={styles.buttonText}>Next</Text>
           </TouchableOpacity>
         </View>
-      </LinearGradient>
     </View>
   );
 }
@@ -85,9 +79,7 @@ export default function NameScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  gradient: {
-    flex: 1,
+    backgroundColor: '#1a1a1a',
   },
   header: {
     flexDirection: 'row',

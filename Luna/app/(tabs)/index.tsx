@@ -1,115 +1,205 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, StatusBar } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import { UserCard, User } from '@/components/UserCard';
 
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
-import { useAuth } from '@/contexts/AuthContext';
+// Datos de ejemplo de usuarios
+const mockUsers: User[] = [
+  {
+    id: '1',
+    name: 'Erlan Sadewa',
+    age: 21,
+    gender: 'male',
+    profileImage: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face',
+    country: 'Malaysia',
+    countryFlag: '🇲🇾',
+    isOnline: true,
+    description: 'Lorem Ipsum is simply dummy text of the printing and typesetting industry.',
+  },
+  {
+    id: '2',
+    name: 'Nafisa Gitari',
+    age: 23,
+    gender: 'female',
+    profileImage: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150&h=150&fit=crop&crop=face',
+    country: 'Malaysia',
+    countryFlag: '🇲🇾',
+    isOnline: true,
+    description: 'Lorem Ipsum is simply dummy text of the printing and typesetting industry.',
+  },
+  {
+    id: '3',
+    name: 'Rodrigo Doria',
+    age: 25,
+    gender: 'male',
+    country: 'Malaysia',
+    countryFlag: '🇲🇾',
+    isOnline: false,
+    description: 'Lorem Ipsum is simply dummy text of the printing and typesetting industry.',
+  },
+  {
+    id: '4',
+    name: 'Sarah Johnson',
+    age: 22,
+    gender: 'female',
+    country: 'Malaysia',
+    countryFlag: '🇲🇾',
+    isOnline: false,
+    description: 'Lorem Ipsum is simply dummy text of the printing and typesetting industry.',
+  },
+  {
+    id: '5',
+    name: 'Ahmed Hassan',
+    age: 24,
+    gender: 'male',
+    country: 'Malaysia',
+    countryFlag: '🇲🇾',
+    isOnline: false,
+    description: 'Lorem Ipsum is simply dummy text of the printing and typesetting industry.',
+  },
+  {
+    id: '6',
+    name: 'Maria Garcia',
+    age: 26,
+    gender: 'female',
+    country: 'Malaysia',
+    countryFlag: '🇲🇾',
+    isOnline: false,
+    description: 'Lorem Ipsum is simply dummy text of the printing and typesetting industry.',
+  },
+  {
+    id: '7',
+    name: 'David Kim',
+    age: 23,
+    gender: 'male',
+    country: 'Malaysia',
+    countryFlag: '🇲🇾',
+    isOnline: false,
+    description: 'Lorem Ipsum is simply dummy text of the printing and typesetting industry.',
+  },
+  {
+    id: '8',
+    name: 'Lisa Chen',
+    age: 21,
+    gender: 'female',
+    country: 'Malaysia',
+    countryFlag: '🇲🇾',
+    isOnline: false,
+    description: 'Lorem Ipsum is simply dummy text of the printing and typesetting industry.',
+  },
+];
 
 export default function HomeScreen() {
-  const { user, logout } = useAuth();
+  const [users, setUsers] = useState<User[]>([]);
 
-  const handleLogout = () => {
-    Alert.alert(
-      'Cerrar Sesión',
-      '¿Estás seguro de que quieres cerrar sesión?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Cerrar Sesión', style: 'destructive', onPress: logout }
-      ]
-    );
+  useEffect(() => {
+    // Simular carga de datos
+    setTimeout(() => {
+      setUsers(mockUsers);
+    }, 500);
+  }, []);
+
+  const handleUserPress = (user: User) => {
+    console.log('User pressed:', user.name);
+    // Aquí puedes navegar al perfil del usuario o abrir un chat
   };
 
+  const handleFilterPress = () => {
+    console.log('Filter pressed');
+    // Implementar filtros
+  };
+
+  const handleNotificationPress = () => {
+    console.log('Notifications pressed');
+    // Navegar a notificaciones
+  };
+
+  const renderUserItem = ({ item }: { item: User }) => (
+    <UserCard user={item} onPress={handleUserPress} />
+  );
+
+  const renderSeparator = () => <View style={styles.separator} />;
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      
+      <LinearGradient
+        colors={['#000000', '#1a1a1a']}
+        style={styles.gradient}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.headerText}>Home</Text>
+          <Text style={styles.title}>Lunea</Text>
+          <View style={styles.headerIcons}>
+            <TouchableOpacity onPress={handleFilterPress} style={styles.iconButton}>
+              <Ionicons name="options-outline" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleNotificationPress} style={styles.iconButton}>
+              <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Users List */}
+        <FlatList
+          data={users}
+          renderItem={renderUserItem}
+          keyExtractor={(item) => item.id}
+          ItemSeparatorComponent={renderSeparator}
+          style={styles.list}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
         />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">¡Bienvenido!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      
-      {user && (
-        <ThemedView style={styles.userContainer}>
-          <ThemedText type="subtitle">Hola, @{user.username}!</ThemedText>
-          <ThemedText style={styles.emailText}>{user.email}</ThemedText>
-        </ThemedView>
-      )}
-
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Paso 1: Prueba la app</ThemedText>
-        <ThemedText>
-          Has iniciado sesión exitosamente en Lunae. 
-          Edita <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> para ver cambios.
-        </ThemedText>
-      </ThemedView>
-      
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Paso 2: Explora</ThemedText>
-        <ThemedText>
-          Toca la pestaña Explore para aprender más sobre lo que incluye esta app.
-        </ThemedText>
-      </ThemedView>
-      
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Paso 3: Personaliza</ThemedText>
-        <ThemedText>
-          Personaliza la app según tus necesidades. El sistema de autenticación ya está configurado.
-        </ThemedText>
-      </ThemedView>
-
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <ThemedText style={styles.logoutButtonText}>Cerrar Sesión</ThemedText>
-      </TouchableOpacity>
-    </ParallaxScrollView>
+      </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    flex: 1,
   },
-  userContainer: {
-    gap: 4,
-    marginBottom: 16,
-    padding: 16,
-    backgroundColor: 'rgba(255, 215, 0, 0.1)',
-    borderRadius: 8,
+  gradient: {
+    flex: 1,
   },
-  emailText: {
-    opacity: 0.7,
-    fontSize: 14,
+  header: {
+    paddingTop: 60,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
   },
-  stepContainer: {
-    gap: 8,
+  headerText: {
+    fontSize: 16,
+    color: '#CCCCCC',
     marginBottom: 8,
   },
-  logoutButton: {
-    backgroundColor: '#FF6B6B',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  logoutButtonText: {
-    color: '#fff',
+  title: {
+    fontSize: 32,
     fontWeight: 'bold',
-    fontSize: 16,
+    color: '#FFD700',
+    marginBottom: 20,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
+  headerIcons: {
     position: 'absolute',
+    top: 60,
+    right: 20,
+    flexDirection: 'row',
+    gap: 16,
+  },
+  iconButton: {
+    padding: 4,
+  },
+  list: {
+    flex: 1,
+  },
+  listContent: {
+    paddingBottom: 100, // Espacio para el navbar inferior
+  },
+  separator: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginHorizontal: 16,
   },
 });

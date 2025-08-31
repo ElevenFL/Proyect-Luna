@@ -1,14 +1,13 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 
 const { width, height } = Dimensions.get('window');
 
 export default function LocationScreen() {
-  const { displayName, birthDate } = useLocalSearchParams();
+  const { displayName, birthDate, gender, profileImage } = useLocalSearchParams();
   const [locationPermission, setLocationPermission] = useState(false);
 
   const requestLocationPermission = async () => {
@@ -38,6 +37,8 @@ export default function LocationScreen() {
           params: { 
             displayName: displayName as string,
             birthDate: birthDate as string,
+            gender: gender as string,
+            profileImage: profileImage as string,
             location: JSON.stringify(locationData)
           }
         });
@@ -60,6 +61,8 @@ export default function LocationScreen() {
               params: { 
                 displayName: displayName as string,
                 birthDate: birthDate as string,
+                gender: gender as string,
+                profileImage: profileImage as string,
                 location: JSON.stringify({})
               }
             });
@@ -80,6 +83,8 @@ export default function LocationScreen() {
       params: { 
         displayName: displayName as string,
         birthDate: birthDate as string,
+        gender: gender as string,
+        profileImage: profileImage as string,
         location: JSON.stringify({})
       }
     });
@@ -87,10 +92,6 @@ export default function LocationScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#000000', '#1a1a1a']}
-        style={styles.gradient}
-      >
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
@@ -114,6 +115,7 @@ export default function LocationScreen() {
             <View style={styles.dot} />
             <View style={styles.dot} />
             <View style={styles.dot} />
+            <View style={styles.dot} />
             <View style={[styles.dot, styles.activeDot]} />
             <View style={styles.dot} />
           </View>
@@ -129,7 +131,6 @@ export default function LocationScreen() {
             <Text style={styles.skipButtonText}>Skip for now</Text>
           </TouchableOpacity>
         </View>
-      </LinearGradient>
     </View>
   );
 }
@@ -137,9 +138,7 @@ export default function LocationScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  gradient: {
-    flex: 1,
+    backgroundColor: '#1a1a1a',
   },
   header: {
     flexDirection: 'row',

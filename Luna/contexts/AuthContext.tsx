@@ -7,6 +7,8 @@ interface User {
   email: string;
   displayName?: string;
   birthDate?: string;
+  gender?: string;
+  profileImage?: string;
   location?: {
     latitude?: number;
     longitude?: number;
