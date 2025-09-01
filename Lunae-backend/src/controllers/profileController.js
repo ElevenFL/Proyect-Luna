@@ -3,17 +3,18 @@ import { User } from '../models/Users.js';
 // Actualizar perfil del usuario
 export const updateProfile = async (req, res) => {
   try {
-    const { displayName, birthDate, location } = req.body;
+    const { displayName, birthDate, gender, location } = req.body;
     const userId = req.user.id;
 
     const updateData = {};
     
     if (displayName) updateData.displayName = displayName;
     if (birthDate) updateData.birthDate = new Date(birthDate);
+    if (gender) updateData.gender = gender;
     if (location) updateData.location = location;
     
     // Marcar el perfil como completado si se proporcionan todos los datos
-    if (displayName && birthDate && location) {
+    if (displayName && birthDate && gender && location) {
       updateData.profileCompleted = true;
     }
 

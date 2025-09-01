@@ -8,11 +8,15 @@ const userSchema = new mongoose.Schema({
   // Campos del perfil
   displayName: { type: String, required: false },
   birthDate: { type: Date, required: false },
+  gender: { type: String, required: false },
   location: {
     latitude: { type: Number, required: false },
     longitude: { type: Number, required: false },
     address: { type: String, required: false }
   },
+  // Campos de imagen
+  profileImage: { type: String, required: false },
+  profileImageKey: { type: String, required: false }, // Key de S3 para futuras operaciones
   profileCompleted: { type: Boolean, default: false }
 }, {
   timestamps: true

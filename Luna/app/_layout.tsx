@@ -7,6 +7,7 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthProvider } from '@/contexts/AuthContext';
 import AuthGuard from '@/components/AuthGuard';
+import '@/config/amplify'; // Inicializar Amplify
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();

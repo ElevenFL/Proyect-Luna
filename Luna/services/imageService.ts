@@ -1,6 +1,5 @@
 import * as ImageManipulator from 'expo-image-manipulator';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '../config/firebase';
+import { Storage } from '../config/amplify';
 
 export interface ImageOptimizationOptions {
   maxWidth?: number;
@@ -11,29 +10,32 @@ export interface ImageOptimizationOptions {
 
 export class ImageService {
   /**
-   * Verifica la conexión con Firebase Storage
+   * Verifica la conexión con AWS S3 Storage
    */
   static async testConnection(): Promise<boolean> {
     try {
-      console.log('Probando conexión con Firebase Storage...');
-      const testRef = ref(storage, 'test/connection-test.txt');
+      console.log('Probando conexión con AWS S3 Storage...');
       const testBlob = new Blob(['test'], { type: 'text/plain' });
       
-      await uploadBytes(testRef, testBlob);
-      console.log('Conexión con Firebase Storage exitosa');
+      await Storage.uploadData({
+        key: 'test/connection-test.txt',
+        data: testBlob,
+      }).result;
+      
+      console.log('Conexión con AWS S3 Storage exitosa');
       
       // Limpiar archivo de prueba
-      // Note: No hay método delete en el SDK web, pero el archivo de prueba es pequeño
+      await Storage.remove({ key: 'test/connection-test.txt' });
       
       return true;
     } catch (error) {
-      console.error('Error de conexión con Firebase Storage:', error);
+      console.error('Error de conexión con AWS S3 Storage:', error);
       return false;
     }
   }
 
   /**
-   * Optimiza una imagen antes de subirla a Firebase Storage
+   * Optimiza una imagen antes de subirla a AWS S3 Storage
    */
   static async optimizeImage(
     imageUri: string, 
@@ -71,7 +73,7 @@ export class ImageService {
   }
 
   /**
-   * Sube una imagen optimizada a Firebase Storage
+   * Sube una imagen optimizada a AWS S3 Storage
    */
   static async uploadOptimizedImage(
     imageUri: string,
@@ -100,20 +102,24 @@ export class ImageService {
       const fileName = `${timestamp}-${randomString}.${options.format || 'jpg'}`;
       const fullPath = `${folder}/${fileName}`;
       
-      console.log('Subiendo a Firebase Storage:', fullPath);
+      console.log('Subiendo a AWS S3 Storage:', fullPath);
       
-      // Crear referencia en Firebase Storage
-      const imageRef = ref(storage, fullPath);
+      // Subir imagen optimizada a S3
+      const uploadResult = await Storage.uploadData({
+        key: fullPath,
+        data: blob,
+        options: {
+          contentType: blob.type,
+        },
+      }).result;
       
-      // Subir imagen optimizada
-      const uploadResult = await uploadBytes(imageRef, blob);
-      console.log('Imagen subida exitosamente:', uploadResult.metadata);
+      console.log('Imagen subida exitosamente:', uploadResult);
       
       // Obtener URL de descarga
-      const downloadURL = await getDownloadURL(imageRef);
+      const downloadURL = await Storage.getUrl({ key: fullPath });
       console.log('URL de descarga obtenida:', downloadURL);
       
-      return downloadURL;
+      return downloadURL.url.toString();
     } catch (error) {
       console.error('Error subiendo imagen optimizada:', error);
       
