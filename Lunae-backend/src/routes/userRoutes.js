@@ -1,7 +1,7 @@
 import express from "express";
 import jwt from "jsonwebtoken";
 import { User } from "../models/Users.js";
-import { authenticateToken } from "../middleware/auth.js";
+import { auth } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -137,7 +137,7 @@ router.post("/login", async (req, res) => {
 });
 
 // GET /api/users/profile - Obtener perfil del usuario autenticado
-router.get("/profile", authenticateToken, async (req, res) => {
+router.get("/profile", auth, async (req, res) => {
   try {
     res.json({
       user: {
@@ -155,7 +155,7 @@ router.get("/profile", authenticateToken, async (req, res) => {
 });
 
 // GET usuarios (solo para desarrollo)
-router.get("/", authenticateToken, async (req, res) => {
+router.get("/", auth, async (req, res) => {
   try {
     const users = await User.find().select('-password');
     res.json(users);

@@ -1,58 +1,79 @@
 import React from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, Text } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
-import { router, useSegments } from 'expo-router';
+import { router } from 'expo-router';
 
-export default function AuthGuard({ children }: { children: React.ReactNode }) {
+interface AuthGuardProps {
+  children: React.ReactNode;
+  requireAuth?: boolean;
+  redirectTo?: string;
+}
+
+export const AuthGuard: React.FC<AuthGuardProps> = ({ 
+  children, 
+  requireAuth = true, 
+  redirectTo = '/login' 
+}) => {
   const { user, isLoading } = useAuth();
-  const segments = useSegments();
 
-  React.useEffect(() => {
-    if (isLoading) return;
-
-    const inAuthGroup = segments[0] === '(tabs)';
-    const inOnboardingGroup = segments[0] === 'onboarding';
-    const inAuthScreens = segments[0] === 'login' || segments[0] === 'register';
-
-    if (!user && inAuthGroup) {
-      // Usuario no autenticado intentando acceder a rutas protegidas
-      router.replace('/login');
-    } else if (user && inAuthScreens) {
-      // Usuario autenticado en pantallas de auth, verificar si necesita onboarding
-      if (!user.profileCompleted) {
-        router.replace('/onboarding/welcome');
-      } else {
-        router.replace('/(tabs)');
-      }
-    } else if (user && !inAuthGroup && !inOnboardingGroup && !inAuthScreens) {
-      // Usuario autenticado pero no en ninguna pantalla específica
-      if (!user.profileCompleted) {
-        router.replace('/onboarding/welcome');
-      } else {
-        router.replace('/(tabs)');
-      }
-    } else if (user && inAuthGroup && !user.profileCompleted) {
-      // Usuario autenticado en tabs pero sin perfil completo
-      router.replace('/onboarding/welcome');
-    }
-  }, [user, isLoading, segments]);
-
+  // Mostrar loading mientras se verifica la autenticación
   if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={{ 
+        flex: 1, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        backgroundColor: '#1a1a1a'
+      }}>
         <ActivityIndicator size="large" color="#FFD700" />
+        <Text style={{ color: '#fff', marginTop: 16, fontSize: 16 }}>
+          Verificando autenticación...
+        </Text>
       </View>
     );
   }
 
-  return <>{children}</>;
-}
+  // Si requiere autenticación y no hay usuario, redirigir
+  if (requireAuth && !user) {
+    // Usar setTimeout para evitar problemas de navegación durante el render
+    setTimeout(() => {
+      router.replace(redirectTo);
+    }, 0);
+    
+    return (
+      <View style={{ 
+        flex: 1, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        backgroundColor: '#1a1a1a'
+      }}>
+        <Text style={{ color: '#fff', fontSize: 16 }}>
+          Redirigiendo...
+        </Text>
+      </View>
+    );
+  }
 
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#1a1a1a',
-  },
-});
+  // Si no requiere autenticación y hay usuario, redirigir a la app principal
+  if (!requireAuth && user) {
+    setTimeout(() => {
+      router.replace('/(tabs)');
+    }, 0);
+    
+    return (
+      <View style={{ 
+        flex: 1, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        backgroundColor: '#1a1a1a'
+      }}>
+        <Text style={{ color: '#fff', fontSize: 16 }}>
+          Redirigiendo...
+        </Text>
+      </View>
+    );
+  }
+
+  // Renderizar children si todo está bien
+  return <>{children}</>;
+};

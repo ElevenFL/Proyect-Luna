@@ -1,5 +1,4 @@
 import * as ImageManipulator from 'expo-image-manipulator';
-import { Storage } from '../config/amplify';
 
 export interface ImageOptimizationOptions {
   maxWidth?: number;
@@ -8,34 +7,138 @@ export interface ImageOptimizationOptions {
   format?: 'jpeg' | 'png' | 'webp';
 }
 
+export interface PresignedUrlResponse {
+  uploadUrl: string;
+  key: string;
+  bucket: string;
+  region: string;
+}
+
 export class ImageService {
+  private static API_BASE_URL = 'http://192.168.1.11:3000/api';
+  private static authToken: string = '';
+
   /**
-   * Verifica la conexión con AWS S3 Storage
+   * Establece el token de autenticación
    */
-  static async testConnection(): Promise<boolean> {
-    try {
-      console.log('Probando conexión con AWS S3 Storage...');
-      const testBlob = new Blob(['test'], { type: 'text/plain' });
-      
-      await Storage.uploadData({
-        key: 'test/connection-test.txt',
-        data: testBlob,
-      }).result;
-      
-      console.log('Conexión con AWS S3 Storage exitosa');
-      
-      // Limpiar archivo de prueba
-      await Storage.remove({ key: 'test/connection-test.txt' });
-      
-      return true;
-    } catch (error) {
-      console.error('Error de conexión con AWS S3 Storage:', error);
-      return false;
+  static setAuthToken(token: string) {
+    this.authToken = token;
+    console.log('Token de autenticación establecido en ImageService');
+  }
+
+  /**
+   * Verifica si el token está disponible y es válido
+   */
+  private static validateToken(): void {
+    if (!this.authToken || this.authToken.trim() === '') {
+      throw new Error('Token de autenticación no disponible');
     }
   }
 
   /**
-   * Optimiza una imagen antes de subirla a AWS S3 Storage
+   * Obtiene una URL firmada para subir una imagen
+   */
+  static async getUploadUrl(
+    fileName: string,
+    contentType: string,
+    folder: string = 'profile-images'
+  ): Promise<PresignedUrlResponse> {
+    try {
+      this.validateToken();
+
+      console.log('Solicitando URL firmada para subida:', { fileName, contentType, folder });
+      
+      const response = await fetch(`${this.API_BASE_URL}/images/upload-url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.authToken}`,
+        },
+        body: JSON.stringify({
+          fileName,
+          contentType,
+          folder,
+        }),
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Token inválido o expirado');
+        }
+        if (response.status === 403) {
+          throw new Error('Acceso denegado');
+        }
+        
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Error del servidor: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('URL firmada obtenida:', data.data);
+      
+      return data.data;
+    } catch (error) {
+      console.error('Error obteniendo URL de subida:', error);
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Token inválido') || error.message.includes('Token expirado')) {
+          throw new Error('Token inválido o expirado');
+        }
+        throw error;
+      }
+      
+      throw new Error(`No se pudo obtener la URL de subida: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    }
+  }
+
+  /**
+   * Obtiene una URL firmada para descargar una imagen
+   */
+  static async getDownloadUrl(imageKey: string): Promise<string> {
+    try {
+      this.validateToken();
+
+      console.log('Solicitando URL firmada para descarga:', imageKey);
+      
+      const response = await fetch(`${this.API_BASE_URL}/images/download-url/${encodeURIComponent(imageKey)}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.authToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Token inválido o expirado');
+        }
+        if (response.status === 403) {
+          throw new Error('Acceso denegado');
+        }
+        
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Error del servidor: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('URL de descarga obtenida:', data.data.downloadUrl);
+      
+      return data.data.downloadUrl;
+    } catch (error) {
+      console.error('Error obteniendo URL de descarga:', error);
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Token inválido') || error.message.includes('Token expirado')) {
+          throw new Error('Token inválido o expirado');
+        }
+        throw error;
+      }
+      
+      throw new Error(`No se pudo obtener la URL de descarga: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    }
+  }
+
+  /**
+   * Optimiza una imagen antes de subirla
    */
   static async optimizeImage(
     imageUri: string, 
@@ -73,7 +176,7 @@ export class ImageService {
   }
 
   /**
-   * Sube una imagen optimizada a AWS S3 Storage
+   * Sube una imagen optimizada usando presigned URL
    */
   static async uploadOptimizedImage(
     imageUri: string,
@@ -81,7 +184,7 @@ export class ImageService {
     options: ImageOptimizationOptions = {}
   ): Promise<string> {
     try {
-      console.log('Iniciando subida de imagen:', { imageUri, folder, options });
+      console.log('Iniciando subida de imagen con presigned URL:', { imageUri, folder, options });
       
       // Optimizar la imagen
       const optimizedUri = await this.optimizeImage(imageUri, options);
@@ -100,36 +203,130 @@ export class ImageService {
       const timestamp = Date.now();
       const randomString = Math.random().toString(36).substr(2, 9);
       const fileName = `${timestamp}-${randomString}.${options.format || 'jpg'}`;
-      const fullPath = `${folder}/${fileName}`;
       
-      console.log('Subiendo a AWS S3 Storage:', fullPath);
+      // Obtener URL firmada para subida
+      const presignedData = await this.getUploadUrl(fileName, blob.type, folder);
+      console.log('URL firmada obtenida:', presignedData);
       
-      // Subir imagen optimizada a S3
-      const uploadResult = await Storage.uploadData({
-        key: fullPath,
-        data: blob,
-        options: {
-          contentType: blob.type,
+      // Subir imagen directamente a S3 usando la URL firmada
+      const uploadResponse = await fetch(presignedData.uploadUrl, {
+        method: 'PUT',
+        body: blob,
+        headers: {
+          'Content-Type': blob.type,
         },
-      }).result;
+      });
       
-      console.log('Imagen subida exitosamente:', uploadResult);
+      if (!uploadResponse.ok) {
+        throw new Error(`Error subiendo a S3: ${uploadResponse.status} ${uploadResponse.statusText}`);
+      }
       
-      // Obtener URL de descarga
-      const downloadURL = await Storage.getUrl({ key: fullPath });
-      console.log('URL de descarga obtenida:', downloadURL);
+      console.log('Imagen subida exitosamente a S3');
       
-      return downloadURL.url.toString();
+      // Construir URL pública de la imagen
+      const publicUrl = `https://${presignedData.bucket}.s3.${presignedData.region}.amazonaws.com/${presignedData.key}`;
+      console.log('URL pública de la imagen:', publicUrl);
+      
+      return publicUrl;
     } catch (error) {
-      console.error('Error subiendo imagen optimizada:', error);
+      console.error('Error subiendo imagen con presigned URL:', error);
       
-      // Proporcionar más información sobre el error
       if (error instanceof Error) {
         console.error('Mensaje de error:', error.message);
         console.error('Stack trace:', error.stack);
       }
       
       throw new Error(`No se pudo subir la imagen: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    }
+  }
+
+  /**
+   * Elimina una imagen del bucket S3
+   */
+  static async deleteImage(imageKey: string): Promise<boolean> {
+    try {
+      this.validateToken();
+
+      console.log('Eliminando imagen:', imageKey);
+      
+      const response = await fetch(`${this.API_BASE_URL}/images/delete/${encodeURIComponent(imageKey)}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${this.authToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Token inválido o expirado');
+        }
+        if (response.status === 403) {
+          throw new Error('Acceso denegado');
+        }
+        
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Error del servidor: ${response.status}`);
+      }
+
+      console.log('Imagen eliminada exitosamente');
+      return true;
+    } catch (error) {
+      console.error('Error eliminando imagen:', error);
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Token inválido') || error.message.includes('Token expirado')) {
+          throw new Error('Token inválido o expirado');
+        }
+        throw error;
+      }
+      
+      return false;
+    }
+  }
+
+  /**
+   * Lista todas las imágenes en una carpeta específica
+   */
+  static async listImages(folder: string = 'profile-images'): Promise<any[]> {
+    try {
+      this.validateToken();
+
+      console.log('Listando imágenes en carpeta:', folder);
+      
+      const response = await fetch(`${this.API_BASE_URL}/images/list?folder=${encodeURIComponent(folder)}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.authToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Token inválido o expirado');
+        }
+        if (response.status === 403) {
+          throw new Error('Acceso denegado');
+        }
+        
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Error del servidor: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('Imágenes listadas:', data.data.images);
+      
+      return data.data.images;
+    } catch (error) {
+      console.error('Error listando imágenes:', error);
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Token inválido') || error.message.includes('Token expirado')) {
+          throw new Error('Token inválido o expirado');
+        }
+        throw error;
+      }
+      
+      return [];
     }
   }
 

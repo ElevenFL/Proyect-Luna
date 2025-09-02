@@ -1,22 +1,20 @@
-import express from "express";
-import { authenticateToken } from "../middleware/auth.js";
+import express from 'express';
+import { auth } from '../middleware/auth.js';
 import {
-  testConnection,
-  getProfileImageUploadUrl,
-  updateProfileImageUrl,
-  deleteProfileImage,
-  getImageDownloadUrl,
-} from "../controllers/imageController.js";
+  generateUploadUrl,
+  generateDownloadUrl,
+  deleteImage,
+  listImages
+} from '../controllers/imageController.js';
 
 const router = express.Router();
 
-// Ruta de prueba de conexión (sin autenticación para testing)
-router.get("/test-connection", testConnection);
+// Rutas específicas primero
+router.post('/upload-url', auth, generateUploadUrl);
+router.get('/list', auth, listImages);
 
-// Rutas protegidas (requieren autenticación)
-router.post("/profile/upload-url", authenticateToken, getProfileImageUploadUrl);
-router.put("/profile/update-url", authenticateToken, updateProfileImageUrl);
-router.delete("/profile/delete", authenticateToken, deleteProfileImage);
-router.get("/download/:key", authenticateToken, getImageDownloadUrl);
+// Rutas con parámetros después
+router.get('/download-url/:imageKey', auth, generateDownloadUrl);
+router.delete('/delete/:imageKey', auth, deleteImage);
 
 export default router;

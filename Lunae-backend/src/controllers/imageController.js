@@ -1,213 +1,196 @@
-import { uploadToS3, getSignedDownloadUrl, getSignedUploadUrl, deleteFromS3, testS3Connection } from '../config/aws.js';
-import { User } from '../models/Users.js';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const s3Client = new S3Client({
+  region: process.env.AWS_REGION || 'us-east-2',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+});
+
+const BUCKET_NAME = process.env.AWS_S3_BUCKET || 'eleven-lunea-storage';
 
 /**
- * Probar conexión con S3
+ * Genera una URL firmada para subir una imagen
  */
-export const testConnection = async (req, res) => {
+export const generateUploadUrl = async (req, res) => {
   try {
-    const result = await testS3Connection();
+    const { fileName, contentType, folder = 'profile-images' } = req.body;
     
-    if (result.success) {
-      res.json({
-        success: true,
-        message: 'Conexión con AWS S3 exitosa',
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        message: 'Error de conexión con S3',
-        error: result.error,
-      });
-    }
-  } catch (error) {
-    console.error('Error probando conexión:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor',
-    });
-  }
-};
-
-/**
- * Obtener URL firmada para subir imagen de perfil
- */
-export const getProfileImageUploadUrl = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { contentType } = req.body;
-    
-    if (!contentType) {
+    if (!fileName || !contentType) {
       return res.status(400).json({
         success: false,
-        message: 'Content-Type es requerido',
+        message: 'fileName y contentType son requeridos'
       });
     }
 
-    // Generar nombre único para la imagen
+    // Generar nombre único para el archivo
     const timestamp = Date.now();
     const randomString = Math.random().toString(36).substr(2, 9);
-    const fileExtension = contentType.split('/')[1] || 'jpg';
-    const key = `profile-images/${userId}/${timestamp}-${randomString}.${fileExtension}`;
+    const fileExtension = fileName.split('.').pop();
+    const key = `${folder}/${timestamp}-${randomString}.${fileExtension}`;
 
-    const result = await getSignedUploadUrl(key, contentType, 3600); // 1 hora
+    // Crear comando para subir objeto
+    const putObjectCommand = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      ContentType: contentType,
+      // Configurar para acceso público (opcional, para imágenes de perfil)
+      ACL: 'public-read',
+    });
 
-    if (result.success) {
-      res.json({
-        success: true,
-        uploadUrl: result.url,
+    // Generar URL firmada para subida (válida por 15 minutos)
+    const uploadUrl = await getSignedUrl(s3Client, putObjectCommand, {
+      expiresIn: 900, // 15 minutos
+    });
+
+    res.json({
+      success: true,
+      data: {
+        uploadUrl,
         key,
-        message: 'URL de subida generada exitosamente',
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        message: 'Error generando URL de subida',
-        error: result.error,
-      });
-    }
+        bucket: BUCKET_NAME,
+        region: process.env.AWS_REGION || 'us-east-2',
+      },
+      message: 'URL de subida generada exitosamente'
+    });
+
   } catch (error) {
     console.error('Error generando URL de subida:', error);
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor',
+      error: error.message
     });
   }
 };
 
 /**
- * Actualizar URL de imagen de perfil en la base de datos
+ * Genera una URL firmada para descargar una imagen
  */
-export const updateProfileImageUrl = async (req, res) => {
+export const generateDownloadUrl = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { imageUrl, imageKey } = req.body;
-
-    if (!imageUrl) {
+    const { imageKey } = req.params;
+    
+    if (!imageKey) {
       return res.status(400).json({
         success: false,
-        message: 'URL de imagen es requerida',
+        message: 'imageKey es requerido'
       });
     }
 
-    // Actualizar usuario con nueva imagen
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { 
-        profileImage: imageUrl,
-        profileImageKey: imageKey, // Guardar la key para futuras operaciones
-      },
-      { new: true, select: '-password' }
-    );
+    // Crear comando para obtener objeto
+    const getObjectCommand = new GetObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: imageKey,
+    });
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'Usuario no encontrado',
-      });
-    }
+    // Generar URL firmada para descarga (válida por 1 hora)
+    const downloadUrl = await getSignedUrl(s3Client, getObjectCommand, {
+      expiresIn: 3600, // 1 hora
+    });
 
     res.json({
       success: true,
-      message: 'Imagen de perfil actualizada exitosamente',
-      user,
-    });
-  } catch (error) {
-    console.error('Error actualizando imagen de perfil:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor',
-    });
-  }
-};
-
-/**
- * Eliminar imagen de perfil
- */
-export const deleteProfileImage = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    
-    // Obtener usuario actual
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'Usuario no encontrado',
-      });
-    }
-
-    // Si tiene imagen guardada, eliminarla de S3
-    if (user.profileImageKey) {
-      const deleteResult = await deleteFromS3(user.profileImageKey);
-      
-      if (!deleteResult.success) {
-        console.error('Error eliminando imagen de S3:', deleteResult.error);
-        // Continuar con la actualización de la DB aunque falle la eliminación de S3
-      }
-    }
-
-    // Actualizar usuario removiendo la imagen
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      { 
-        $unset: { 
-          profileImage: 1,
-          profileImageKey: 1,
-        }
+      data: {
+        downloadUrl,
+        key: imageKey,
+        bucket: BUCKET_NAME,
       },
-      { new: true, select: '-password' }
-    );
-
-    res.json({
-      success: true,
-      message: 'Imagen de perfil eliminada exitosamente',
-      user: updatedUser,
+      message: 'URL de descarga generada exitosamente'
     });
-  } catch (error) {
-    console.error('Error eliminando imagen de perfil:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor',
-    });
-  }
-};
 
-/**
- * Obtener URL firmada para descargar imagen
- */
-export const getImageDownloadUrl = async (req, res) => {
-  try {
-    const { key } = req.params;
-    
-    if (!key) {
-      return res.status(400).json({
-        success: false,
-        message: 'Key del archivo es requerida',
-      });
-    }
-
-    const result = await getSignedDownloadUrl(key, 3600); // 1 hora
-
-    if (result.success) {
-      res.json({
-        success: true,
-        downloadUrl: result.url,
-        message: 'URL de descarga generada exitosamente',
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        message: 'Error generando URL de descarga',
-        error: result.error,
-      });
-    }
   } catch (error) {
     console.error('Error generando URL de descarga:', error);
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Elimina una imagen del bucket S3
+ */
+export const deleteImage = async (req, res) => {
+  try {
+    const { imageKey } = req.params;
+    
+    if (!imageKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'imageKey es requerido'
+      });
+    }
+
+    // Crear comando para eliminar objeto
+    const deleteObjectCommand = new DeleteObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: imageKey,
+    });
+
+    // Ejecutar eliminación
+    await s3Client.send(deleteObjectCommand);
+
+    res.json({
+      success: true,
+      message: 'Imagen eliminada exitosamente'
+    });
+
+  } catch (error) {
+    console.error('Error eliminando imagen:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Lista todas las imágenes en una carpeta específica
+ */
+export const listImages = async (req, res) => {
+  try {
+    const { folder = 'profile-images' } = req.query;
+    
+    // Crear comando para listar objetos
+    const listObjectsCommand = {
+      Bucket: BUCKET_NAME,
+      Prefix: `${folder}/`,
+      MaxKeys: 100, // Limitar a 100 resultados
+    };
+
+    const { Contents } = await s3Client.send(listObjectsCommand);
+
+    const images = Contents ? Contents.map(obj => ({
+      key: obj.Key,
+      size: obj.Size,
+      lastModified: obj.LastModified,
+      url: `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-2'}.amazonaws.com/${obj.Key}`
+    })) : [];
+
+    res.json({
+      success: true,
+      data: {
+        images,
+        folder,
+        total: images.length
+      },
+      message: 'Imágenes listadas exitosamente'
+    });
+
+  } catch (error) {
+    console.error('Error listando imágenes:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
     });
   }
 };

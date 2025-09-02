@@ -6,13 +6,18 @@
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "setup-amplify": "node ./scripts/setup-amplify.js",
+    "test-amplify": "node ./scripts/test-amplify.js",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "clean": "expo start --clear",
+    "dev": "expo start --dev-client"
   },
   "dependencies": {
+    "@aws-amplify/auth": "^6.15.0",
     "@aws-amplify/react-native": "^1.1.10",
+    "@aws-amplify/storage": "^6.9.5",
     "@expo/vector-icons": "^14.1.0",
     "@react-native-async-storage/async-storage": "2.1.2",
     "@react-native-community/datetimepicker": "8.4.1",

@@ -1,14 +1,8 @@
 import { Amplify } from 'aws-amplify';
-import { uploadData, getUrl, remove } from 'aws-amplify/storage';
+import { signIn, signUp, signOut, getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
 
-// Configuración de AWS Amplify v6
+// Configuración de AWS Amplify v6 (solo para autenticación)
 const amplifyConfig = {
-  Storage: {
-    S3: {
-      bucket: 'eleven-lunea-storage', // Cambiar por tu bucket real
-      region: 'us-east-2', // Cambiar por tu región preferida
-    },
-  },
   Auth: {
     Cognito: {
       userPoolId: 'us-east-2_gNVmmibaW', // Cambiar por tu User Pool ID
@@ -21,11 +15,13 @@ const amplifyConfig = {
 // Inicializar Amplify
 Amplify.configure(amplifyConfig);
 
-// Exportar funciones de Storage para compatibilidad
-export const Storage = {
-  uploadData,
-  getUrl,
-  remove,
+// Exportar funciones de Auth para compatibilidad
+export const Auth = {
+  signIn,
+  signUp,
+  signOut,
+  getCurrentUser,
+  fetchAuthSession,
 };
 
 export default Amplify;

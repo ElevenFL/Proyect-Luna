@@ -4,8 +4,12 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "setup-aws": "node scripts/setup-aws.js"
+    "test-server": "node src/test-server.js",
+    "setup-aws": "node scripts/setup-aws.js",
+    "setup-env": "node scripts/setup-env.js",
+    "quick-start": "node scripts/quick-start.js"
   },
   "keywords": [],
   "author": "",
@@ -18,7 +22,7 @@
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
-    "express": "^5.1.0",
+    "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
     "multer-s3": "^3.0.1"
