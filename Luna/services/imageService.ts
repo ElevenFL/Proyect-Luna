@@ -1,4 +1,6 @@
 import * as ImageManipulator from 'expo-image-manipulator';
+import { API_CONFIG } from '../config/api';
+import ApiService from './apiService';
 
 export interface ImageOptimizationOptions {
   maxWidth?: number;
@@ -15,24 +17,14 @@ export interface PresignedUrlResponse {
 }
 
 export class ImageService {
-  private static API_BASE_URL = 'http://192.168.1.11:3000/api';
-  private static authToken: string = '';
+  private static retryCount: number = 0;
 
   /**
    * Establece el token de autenticación
    */
   static setAuthToken(token: string) {
-    this.authToken = token;
+    ApiService.setAuthToken(token);
     console.log('Token de autenticación establecido en ImageService');
-  }
-
-  /**
-   * Verifica si el token está disponible y es válido
-   */
-  private static validateToken(): void {
-    if (!this.authToken || this.authToken.trim() === '') {
-      throw new Error('Token de autenticación no disponible');
-    }
   }
 
   /**
@@ -41,53 +33,27 @@ export class ImageService {
   static async getUploadUrl(
     fileName: string,
     contentType: string,
-    folder: string = 'profile-images'
+    folder: string = API_CONFIG.IMAGE.FOLDERS.PROFILE
   ): Promise<PresignedUrlResponse> {
     try {
-      this.validateToken();
+      // Validar tipo de archivo
+      if (!API_CONFIG.IMAGE.ALLOWED_TYPES.includes(contentType)) {
+        throw new Error(`Tipo de archivo no permitido. Tipos permitidos: ${API_CONFIG.IMAGE.ALLOWED_TYPES.join(', ')}`);
+      }
 
       console.log('Solicitando URL firmada para subida:', { fileName, contentType, folder });
       
-      const response = await fetch(`${this.API_BASE_URL}/images/upload-url`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.authToken}`,
-        },
-        body: JSON.stringify({
-          fileName,
-          contentType,
-          folder,
-        }),
+      const response = await ApiService.post<PresignedUrlResponse>('/images/upload-url', {
+        fileName,
+        contentType,
+        folder,
       });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Token inválido o expirado');
-        }
-        if (response.status === 403) {
-          throw new Error('Acceso denegado');
-        }
-        
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Error del servidor: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('URL firmada obtenida:', data.data);
       
-      return data.data;
+      console.log('URL firmada obtenida:', response.data);
+      return response.data!;
     } catch (error) {
       console.error('Error obteniendo URL de subida:', error);
-      
-      if (error instanceof Error) {
-        if (error.message.includes('Token inválido') || error.message.includes('Token expirado')) {
-          throw new Error('Token inválido o expirado');
-        }
-        throw error;
-      }
-      
-      throw new Error(`No se pudo obtener la URL de subida: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      throw error;
     }
   }
 
@@ -96,44 +62,15 @@ export class ImageService {
    */
   static async getDownloadUrl(imageKey: string): Promise<string> {
     try {
-      this.validateToken();
-
       console.log('Solicitando URL firmada para descarga:', imageKey);
       
-      const response = await fetch(`${this.API_BASE_URL}/images/download-url/${encodeURIComponent(imageKey)}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${this.authToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Token inválido o expirado');
-        }
-        if (response.status === 403) {
-          throw new Error('Acceso denegado');
-        }
-        
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Error del servidor: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('URL de descarga obtenida:', data.data.downloadUrl);
+      const response = await ApiService.get<{ downloadUrl: string }>(`/images/download-url/${encodeURIComponent(imageKey)}`);
       
-      return data.data.downloadUrl;
+      console.log('URL de descarga obtenida:', response.data?.downloadUrl);
+      return response.data!.downloadUrl;
     } catch (error) {
       console.error('Error obteniendo URL de descarga:', error);
-      
-      if (error instanceof Error) {
-        if (error.message.includes('Token inválido') || error.message.includes('Token expirado')) {
-          throw new Error('Token inválido o expirado');
-        }
-        throw error;
-      }
-      
-      throw new Error(`No se pudo obtener la URL de descarga: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      throw error;
     }
   }
 
@@ -145,20 +82,45 @@ export class ImageService {
     options: ImageOptimizationOptions = {}
   ): Promise<string> {
     const {
-      maxWidth = 800,
-      maxHeight = 800,
-      quality = 0.8,
-      format = 'jpeg'
+      maxWidth = API_CONFIG.IMAGE.OPTIMIZATION.MAX_WIDTH,
+      maxHeight = API_CONFIG.IMAGE.OPTIMIZATION.MAX_HEIGHT,
+      quality = API_CONFIG.IMAGE.OPTIMIZATION.QUALITY,
+      format = API_CONFIG.IMAGE.OPTIMIZATION.DEFAULT_FORMAT
     } = options;
 
     try {
+      // Verificar el tamaño del archivo
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+      
+      if (blob.size > API_CONFIG.IMAGE.MAX_SIZE) {
+        throw new Error(`La imagen excede el tamaño máximo permitido de ${API_CONFIG.IMAGE.MAX_SIZE / (1024 * 1024)}MB`);
+      }
+
+      // Verificar el tipo de archivo
+      if (!API_CONFIG.IMAGE.ALLOWED_TYPES.includes(blob.type)) {
+        throw new Error(`Tipo de archivo no permitido. Tipos permitidos: ${API_CONFIG.IMAGE.ALLOWED_TYPES.join(', ')}`);
+      }
+
+      // Obtener dimensiones originales
+      const dimensions = await this.getImageDimensions(imageUri);
+      
+      // Calcular dimensiones óptimas
+      const optimalDimensions = this.calculateOptimalDimensions(
+        dimensions.width,
+        dimensions.height,
+        maxWidth,
+        maxHeight
+      );
+
+      // Optimizar imagen
       const manipulatorResult = await ImageManipulator.manipulateAsync(
         imageUri,
         [
           {
             resize: {
-              width: maxWidth,
-              height: maxHeight,
+              width: optimalDimensions.width,
+              height: optimalDimensions.height,
             },
           },
         ],
@@ -168,10 +130,29 @@ export class ImageService {
         }
       );
 
+      // Verificar el resultado
+      const optimizedResponse = await fetch(manipulatorResult.uri);
+      const optimizedBlob = await optimizedResponse.blob();
+      
+      // Si la imagen optimizada sigue siendo muy grande, reducir más la calidad
+      if (optimizedBlob.size > API_CONFIG.IMAGE.MAX_SIZE) {
+        return this.optimizeImage(imageUri, {
+          ...options,
+          quality: quality * 0.8 // Reducir calidad en 20%
+        });
+      }
+
       return manipulatorResult.uri;
     } catch (error) {
       console.error('Error optimizando imagen:', error);
-      throw new Error('No se pudo optimizar la imagen');
+      
+      if (error instanceof Error) {
+        if (error.message.includes('tamaño máximo') || error.message.includes('Tipo de archivo')) {
+          throw error;
+        }
+      }
+      
+      throw new Error('No se pudo optimizar la imagen. Por favor, intente con otra imagen.');
     }
   }
 
@@ -180,7 +161,7 @@ export class ImageService {
    */
   static async uploadOptimizedImage(
     imageUri: string,
-    folder: string = 'profile-images',
+    folder: string = API_CONFIG.IMAGE.FOLDERS.PROFILE,
     options: ImageOptimizationOptions = {}
   ): Promise<string> {
     try {
@@ -202,23 +183,62 @@ export class ImageService {
       // Generar nombre único para el archivo
       const timestamp = Date.now();
       const randomString = Math.random().toString(36).substr(2, 9);
-      const fileName = `${timestamp}-${randomString}.${options.format || 'jpg'}`;
+      const format = options.format || API_CONFIG.IMAGE.OPTIMIZATION.DEFAULT_FORMAT;
+      const fileName = `${timestamp}-${randomString}.${format}`;
       
-      // Obtener URL firmada para subida
-      const presignedData = await this.getUploadUrl(fileName, blob.type, folder);
-      console.log('URL firmada obtenida:', presignedData);
+      // Obtener URL firmada para subida con reintentos
+      let presignedData: PresignedUrlResponse | null = null;
+      let lastError: Error | null = null;
       
-      // Subir imagen directamente a S3 usando la URL firmada
-      const uploadResponse = await fetch(presignedData.uploadUrl, {
-        method: 'PUT',
-        body: blob,
-        headers: {
-          'Content-Type': blob.type,
-        },
-      });
+      for (let attempt = 1; attempt <= API_CONFIG.RETRY.MAX_ATTEMPTS; attempt++) {
+        try {
+          presignedData = await this.getUploadUrl(fileName, blob.type, folder);
+          console.log('URL firmada obtenida:', presignedData);
+          break;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error('Error desconocido');
+          console.error(`Intento ${attempt} fallido:`, lastError);
+          
+          if (attempt < API_CONFIG.RETRY.MAX_ATTEMPTS) {
+            const delay = API_CONFIG.RETRY.DELAY * Math.pow(API_CONFIG.RETRY.BACKOFF_FACTOR, attempt - 1);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+        }
+      }
       
-      if (!uploadResponse.ok) {
-        throw new Error(`Error subiendo a S3: ${uploadResponse.status} ${uploadResponse.statusText}`);
+      if (!presignedData) {
+        throw new Error(`No se pudo obtener la URL firmada después de ${API_CONFIG.RETRY.MAX_ATTEMPTS} intentos: ${lastError?.message}`);
+      }
+      
+      // Subir imagen directamente a S3 usando la URL firmada con reintentos
+      let uploadResponse: Response | null = null;
+      
+      for (let attempt = 1; attempt <= API_CONFIG.RETRY.MAX_ATTEMPTS; attempt++) {
+        try {
+          uploadResponse = await fetch(presignedData.uploadUrl, {
+            method: 'PUT',
+            body: blob,
+            headers: {
+              'Content-Type': blob.type,
+            },
+          });
+          
+          if (uploadResponse.ok) {
+            break;
+          }
+          
+          throw new Error(`Error subiendo a S3: ${uploadResponse.status} ${uploadResponse.statusText}`);
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error('Error desconocido');
+          console.error(`Intento de subida ${attempt} fallido:`, lastError);
+          
+          if (attempt < API_CONFIG.RETRY.MAX_ATTEMPTS) {
+            const delay = API_CONFIG.RETRY.DELAY * Math.pow(API_CONFIG.RETRY.BACKOFF_FACTOR, attempt - 1);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          } else {
+            throw new Error(`No se pudo subir la imagen después de ${API_CONFIG.RETRY.MAX_ATTEMPTS} intentos: ${lastError.message}`);
+          }
+        }
       }
       
       console.log('Imagen subida exitosamente a S3');
@@ -234,9 +254,22 @@ export class ImageService {
       if (error instanceof Error) {
         console.error('Mensaje de error:', error.message);
         console.error('Stack trace:', error.stack);
+        
+        // Errores específicos
+        if (error.message.includes('tamaño máximo')) {
+          throw new Error('La imagen es demasiado grande. Por favor, seleccione una imagen más pequeña.');
+        }
+        if (error.message.includes('Tipo de archivo')) {
+          throw new Error('Formato de imagen no soportado. Por favor, use JPEG, PNG o WebP.');
+        }
+        if (error.message.includes('Token')) {
+          throw new Error('Error de autenticación. Por favor, inicie sesión nuevamente.');
+        }
+        
+        throw error;
       }
       
-      throw new Error(`No se pudo subir la imagen: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      throw new Error('Error desconocido al subir la imagen. Por favor, intente nuevamente.');
     }
   }
 
@@ -245,88 +278,32 @@ export class ImageService {
    */
   static async deleteImage(imageKey: string): Promise<boolean> {
     try {
-      this.validateToken();
-
       console.log('Eliminando imagen:', imageKey);
       
-      const response = await fetch(`${this.API_BASE_URL}/images/delete/${encodeURIComponent(imageKey)}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${this.authToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Token inválido o expirado');
-        }
-        if (response.status === 403) {
-          throw new Error('Acceso denegado');
-        }
-        
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Error del servidor: ${response.status}`);
-      }
-
+      await ApiService.delete(`/images/delete/${encodeURIComponent(imageKey)}`);
+      
       console.log('Imagen eliminada exitosamente');
       return true;
     } catch (error) {
       console.error('Error eliminando imagen:', error);
-      
-      if (error instanceof Error) {
-        if (error.message.includes('Token inválido') || error.message.includes('Token expirado')) {
-          throw new Error('Token inválido o expirado');
-        }
-        throw error;
-      }
-      
-      return false;
+      throw error;
     }
   }
 
   /**
    * Lista todas las imágenes en una carpeta específica
    */
-  static async listImages(folder: string = 'profile-images'): Promise<any[]> {
+  static async listImages(folder: string = API_CONFIG.IMAGE.FOLDERS.PROFILE): Promise<any[]> {
     try {
-      this.validateToken();
-
       console.log('Listando imágenes en carpeta:', folder);
       
-      const response = await fetch(`${this.API_BASE_URL}/images/list?folder=${encodeURIComponent(folder)}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${this.authToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Token inválido o expirado');
-        }
-        if (response.status === 403) {
-          throw new Error('Acceso denegado');
-        }
-        
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Error del servidor: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('Imágenes listadas:', data.data.images);
+      const response = await ApiService.get<{ images: any[] }>('/images/list', { folder });
       
-      return data.data.images;
+      console.log('Imágenes listadas:', response.data?.images);
+      return response.data?.images || [];
     } catch (error) {
       console.error('Error listando imágenes:', error);
-      
-      if (error instanceof Error) {
-        if (error.message.includes('Token inválido') || error.message.includes('Token expirado')) {
-          throw new Error('Token inválido o expirado');
-        }
-        throw error;
-      }
-      
-      return [];
+      throw error;
     }
   }
 

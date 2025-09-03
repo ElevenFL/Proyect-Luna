@@ -18,19 +18,21 @@ export const updateProfile = async (req, res) => {
       updateData.profileCompleted = true;
     }
 
-    const user = await User.findByIdAndUpdate(
-      userId,
-      updateData,
-      { new: true, select: '-password' }
-    );
-
+    // Obtener usuario actual
+    const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
+    // Actualizar usuario
+    await user.update(updateData);
+
+    // Obtener usuario actualizado sin contraseña
+    const updatedUser = user.select('-password');
+
     res.json({
       message: 'Perfil actualizado exitosamente',
-      user
+      user: updatedUser
     });
   } catch (error) {
     console.error('Error actualizando perfil:', error);
@@ -43,13 +45,16 @@ export const getProfile = async (req, res) => {
   try {
     const userId = req.user.id;
     
-    const user = await User.findById(userId).select('-password');
+    const user = await User.findById(userId);
     
     if (!user) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    res.json({ user });
+    // Excluir contraseña del perfil
+    const userProfile = user.select('-password');
+
+    res.json({ user: userProfile });
   } catch (error) {
     console.error('Error obteniendo perfil:', error);
     res.status(500).json({ message: 'Error interno del servidor' });

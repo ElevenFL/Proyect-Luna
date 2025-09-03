@@ -5,75 +5,146 @@ import { auth } from "../middleware/auth.js";
 
 const router = express.Router();
 
+// Configuración de autenticación
+const AUTH_CONFIG = {
+  TOKEN_SECRET: process.env.JWT_SECRET || 'your_jwt_secret_here',
+  JWT_EXPIRATION: process.env.JWT_EXPIRES_IN || '24h'
+};
+
 // POST /api/users/register - Registrar usuario
 router.post("/register", async (req, res) => {
   try {
     const { username, email, password } = req.body;
 
+    console.log('📝 Intentando registrar usuario:', { username, email });
+
     // Validaciones básicas
     if (!username || !email || !password) {
       return res.status(400).json({ 
-        message: "Todos los campos son requeridos" 
+        success: false,
+        message: "Todos los campos son requeridos",
+        error: "MISSING_FIELDS"
       });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ 
-        message: "La contraseña debe tener al menos 6 caracteres" 
+    // Validar formato de email
+    const emailRegex = /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Formato de email inválido",
+        error: "INVALID_EMAIL_FORMAT"
       });
     }
 
-    if (username.length < 3) {
-      return res.status(400).json({ 
-        message: "El username debe tener al menos 3 caracteres" 
+    // Validar contraseña
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d\w\W]{6,}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: "La contraseña debe tener al menos 6 caracteres, una mayúscula, una minúscula y un número",
+        error: "INVALID_PASSWORD_FORMAT"
+      });
+    }
+
+    // Validar username
+    const usernameRegex = /^[a-zA-Z0-9_-]{3,30}$/;
+    if (!usernameRegex.test(username)) {
+      return res.status(400).json({
+        success: false,
+        message: "El username debe tener entre 3 y 30 caracteres y solo puede contener letras, números, guiones y guiones bajos",
+        error: "INVALID_USERNAME_FORMAT"
       });
     }
 
     // Verificar si el email ya existe
-    const existingEmail = await User.findOne({ email });
+    console.log('🔍 Verificando si el email ya existe...');
+    const existingEmail = await User.findByEmail(email);
     if (existingEmail) {
+      console.log('❌ Email ya existe:', email);
       return res.status(400).json({ 
-        message: "El email ya está registrado" 
+        success: false,
+        message: "El email ya está registrado",
+        error: "EMAIL_EXISTS"
       });
     }
 
     // Verificar si el username ya existe
-    const existingUsername = await User.findOne({ username });
+    console.log('🔍 Verificando si el username ya existe...');
+    const existingUsername = await User.findByUsername(username);
     if (existingUsername) {
+      console.log('❌ Username ya existe:', username);
       return res.status(400).json({ 
-        message: "El username ya está en uso" 
+        success: false,
+        message: "El username ya está en uso",
+        error: "USERNAME_EXISTS"
       });
     }
 
-    // Crear nuevo usuario
-    const newUser = new User({
+    // Crear nuevo usuario usando el nuevo modelo
+    console.log('👤 Creando nuevo usuario...');
+    const newUser = await User.create({
       username,
       email,
-      password
+      password,
+      active: true,
+      loginAttempts: 0,
+      profileCompleted: false
     });
 
-    await newUser.save();
+    console.log('✅ Usuario creado exitosamente:', newUser.id);
 
     // Generar token JWT
     const token = jwt.sign(
-      { userId: newUser._id },
-      process.env.JWT_SECRET || 'tu_secreto_super_seguro',
-      { expiresIn: '7d' }
+      { 
+        userId: newUser.id,
+        version: newUser.passwordChangedAt ? newUser.passwordChangedAt.getTime() : undefined
+      },
+      AUTH_CONFIG.TOKEN_SECRET,
+      { expiresIn: AUTH_CONFIG.JWT_EXPIRATION }
     );
 
     res.status(201).json({
+      success: true,
       message: "Usuario registrado exitosamente",
       token,
       user: {
-        id: newUser._id,
+        id: newUser.id,
         username: newUser.username,
-        email: newUser.email
+        email: newUser.email,
+        profileCompleted: false
       }
     });
   } catch (error) {
-    console.error("Error en registro:", error);
+    console.error("❌ Error en registro:", error);
+    
+    // Manejar errores específicos de DynamoDB
+    if (error.name === 'ConditionalCheckFailedException') {
+      return res.status(400).json({
+        success: false,
+        message: "El usuario ya existe",
+        error: "USER_EXISTS"
+      });
+    } else if (error.name === 'ResourceNotFoundException') {
+      console.log('💡 La tabla no existe. Se creará automáticamente.');
+      return res.status(500).json({
+        success: false,
+        message: "Error de configuración de la base de datos",
+        error: "DB_CONFIG_ERROR"
+      });
+    } else if (error.name === 'AccessDeniedException') {
+      console.log('💡 Error de permisos en DynamoDB.');
+      return res.status(500).json({
+        success: false,
+        message: "Error de permisos en la base de datos",
+        error: "DB_PERMISSION_ERROR"
+      });
+    }
+    
     res.status(500).json({ 
-      message: "Error interno del servidor" 
+      success: false,
+      message: "Error interno del servidor",
+      error: "SERVER_ERROR"
     });
   }
 });
@@ -83,55 +154,238 @@ router.post("/login", async (req, res) => {
   try {
     const { usernameOrEmail, password } = req.body;
 
+    console.log('🔐 Intentando login:', { usernameOrEmail });
+
     // Validaciones básicas
     if (!usernameOrEmail || !password) {
       return res.status(400).json({ 
-        message: "Username/Email y contraseña son requeridos" 
+        success: false,
+        message: "Username/Email y contraseña son requeridos",
+        error: "MISSING_CREDENTIALS"
       });
     }
 
     // Buscar usuario por username o email
-    const user = await User.findOne({
-      $or: [
-        { username: usernameOrEmail },
-        { email: usernameOrEmail }
-      ]
-    });
+    let user = null;
+    if (usernameOrEmail.includes('@')) {
+      console.log('🔍 Buscando usuario por email...');
+      user = await User.findByEmail(usernameOrEmail);
+    } else {
+      console.log('🔍 Buscando usuario por username...');
+      user = await User.findByUsername(usernameOrEmail);
+    }
 
     if (!user) {
+      console.log('❌ Usuario no encontrado');
       return res.status(401).json({ 
-        message: "Credenciales inválidas" 
+        success: false,
+        message: "Credenciales inválidas",
+        error: "INVALID_CREDENTIALS"
+      });
+    }
+
+    console.log('✅ Usuario encontrado:', user.id);
+
+    // Verificar si la cuenta está activa
+    if (!user.active) {
+      console.log('❌ Cuenta desactivada:', user.id);
+      return res.status(401).json({
+        success: false,
+        message: "Cuenta desactivada. Por favor, contacte a soporte.",
+        error: "ACCOUNT_DISABLED"
+      });
+    }
+
+    // Verificar si la cuenta está bloqueada
+    if (user.isLocked()) {
+      const remainingTime = Math.ceil((user.lockUntil - Date.now()) / 1000 / 60); // en minutos
+      console.log('❌ Cuenta bloqueada:', user.id, 'por', remainingTime, 'minutos');
+      return res.status(429).json({
+        success: false,
+        message: `Cuenta bloqueada temporalmente. Intente nuevamente en ${remainingTime} minutos.`,
+        error: "ACCOUNT_LOCKED",
+        lockExpires: user.lockUntil
       });
     }
 
     // Verificar contraseña
+    console.log('🔑 Verificando contraseña...');
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
+      console.log('❌ Contraseña incorrecta para usuario:', user.id);
+      // Incrementar contador de intentos fallidos
+      await user.incrementLoginAttempts();
+
+      // Si la cuenta se bloqueó después de este intento
+      if (user.isLocked()) {
+        console.log('🚫 Cuenta bloqueada por demasiados intentos fallidos:', user.id);
+        return res.status(429).json({
+          success: false,
+          message: "Demasiados intentos fallidos. Cuenta bloqueada por 1 hora.",
+          error: "ACCOUNT_LOCKED",
+          lockExpires: user.lockUntil
+        });
+      }
+
       return res.status(401).json({ 
-        message: "Credenciales inválidas" 
+        success: false,
+        message: "Credenciales inválidas",
+        error: "INVALID_CREDENTIALS",
+        remainingAttempts: 5 - user.loginAttempts
       });
     }
 
+    console.log('✅ Contraseña correcta para usuario:', user.id);
+
+    // Resetear intentos de login si la contraseña es correcta
+    await user.resetLoginAttempts();
+
     // Generar token JWT
     const token = jwt.sign(
-      { userId: user._id },
-      process.env.JWT_SECRET || 'tu_secreto_super_seguro',
-      { expiresIn: '7d' }
+      { 
+        userId: user.id,
+        version: user.passwordChangedAt ? user.passwordChangedAt.getTime() : undefined
+      },
+      AUTH_CONFIG.TOKEN_SECRET,
+      { expiresIn: AUTH_CONFIG.JWT_EXPIRATION }
     );
 
+    console.log('🎉 Login exitoso para usuario:', user.id);
+
     res.json({
+      success: true,
       message: "Inicio de sesión exitoso",
       token,
       user: {
-        id: user._id,
+        id: user.id,
         username: user.username,
-        email: user.email
+        email: user.email,
+        displayName: user.displayName,
+        profileImage: user.profileImage,
+        profileCompleted: user.profileCompleted
       }
     });
   } catch (error) {
-    console.error("Error en login:", error);
+    console.error("❌ Error en login:", error);
+    
+    // Manejar errores específicos de DynamoDB
+    if (error.name === 'ResourceNotFoundException') {
+      console.log('💡 La tabla no existe. Se creará automáticamente.');
+      return res.status(500).json({
+        success: false,
+        message: "Error de configuración de la base de datos",
+        error: "DB_CONFIG_ERROR"
+      });
+    } else if (error.name === 'AccessDeniedException') {
+      console.log('💡 Error de permisos en DynamoDB.');
+      return res.status(500).json({
+        success: false,
+        message: "Error de permisos en la base de datos",
+        error: "DB_PERMISSION_ERROR"
+      });
+    }
+    
     res.status(500).json({ 
-      message: "Error interno del servidor" 
+      success: false,
+      message: "Error interno del servidor",
+      error: "SERVER_ERROR"
+    });
+  }
+});
+
+// POST /api/users/sync-amplify - Sincronizar usuario de Amplify con DynamoDB
+router.post("/sync-amplify", async (req, res) => {
+  try {
+    const { username, email, sub } = req.body;
+
+    console.log('🔄 Intentando sincronizar usuario de Amplify:', { username, email, sub });
+
+    // Validaciones básicas
+    if (!username || !email || !sub) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Username, email y sub son requeridos",
+        error: "MISSING_FIELDS"
+      });
+    }
+
+    // Verificar si el usuario ya existe en DynamoDB
+    console.log('🔍 Verificando si el usuario ya existe...');
+    const existingUser = await User.findByEmail(email);
+    if (existingUser) {
+      console.log('✅ Usuario ya existe:', existingUser.id);
+      // Si el usuario ya existe, actualizar el sub de Amplify si es necesario
+      if (existingUser.amplifySub !== sub) {
+        console.log('🔄 Actualizando sub de Amplify...');
+        await existingUser.update({ amplifySub: sub });
+      }
+      
+      return res.status(200).json({
+        success: true,
+        message: "Usuario ya existe en la base de datos",
+        user: {
+          id: existingUser.id,
+          username: existingUser.username,
+          email: existingUser.email,
+          profileCompleted: existingUser.profileCompleted
+        }
+      });
+    }
+
+    // Crear nuevo usuario en DynamoDB
+    console.log('👤 Creando nuevo usuario en DynamoDB...');
+    const newUser = await User.create({
+      username,
+      email,
+      amplifySub: sub, // ID único de Amplify
+      active: true,
+      profileCompleted: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+
+    console.log('✅ Usuario sincronizado exitosamente:', newUser.id);
+
+    res.status(201).json({
+      success: true,
+      message: "Usuario sincronizado exitosamente",
+      user: {
+        id: newUser.id,
+        username: newUser.username,
+        email: newUser.email,
+        profileCompleted: false
+      }
+    });
+  } catch (error) {
+    console.error("❌ Error en sincronización:", error);
+    
+    // Manejar errores específicos de DynamoDB
+    if (error.name === 'ConditionalCheckFailedException') {
+      return res.status(400).json({
+        success: false,
+        message: "El usuario ya existe",
+        error: "USER_EXISTS"
+      });
+    } else if (error.name === 'ResourceNotFoundException') {
+      console.log('💡 La tabla no existe. Se creará automáticamente.');
+      return res.status(500).json({
+        success: false,
+        message: "Error de configuración de la base de datos",
+        error: "DB_CONFIG_ERROR"
+      });
+    } else if (error.name === 'AccessDeniedException') {
+      console.log('💡 Error de permisos en DynamoDB.');
+      return res.status(500).json({
+        success: false,
+        message: "Error de permisos en la base de datos",
+        error: "DB_PERMISSION_ERROR"
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false,
+      message: "Error interno del servidor",
+      error: "SERVER_ERROR"
     });
   }
 });
@@ -139,17 +393,45 @@ router.post("/login", async (req, res) => {
 // GET /api/users/profile - Obtener perfil del usuario autenticado
 router.get("/profile", auth, async (req, res) => {
   try {
+    console.log('👤 Obteniendo perfil del usuario:', req.user.id);
+    
     res.json({
       user: {
-        id: req.user._id,
+        id: req.user.id,
         username: req.user.username,
         email: req.user.email
       }
     });
   } catch (error) {
-    console.error("Error obteniendo perfil:", error);
+    console.error("❌ Error obteniendo perfil:", error);
     res.status(500).json({ 
       message: "Error interno del servidor" 
+    });
+  }
+});
+
+// GET /api/users/profile-status - Verificar estado del perfil del usuario
+router.get("/profile-status", auth, async (req, res) => {
+  try {
+    const user = req.user;
+    console.log('📊 Verificando estado del perfil del usuario:', user.id);
+    
+    res.json({
+      success: true,
+      message: "Perfil del usuario verificado",
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        profileCompleted: user.profileCompleted
+      }
+    });
+  } catch (error) {
+    console.error("❌ Error obteniendo estado del perfil:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Error interno del servidor",
+      error: "SERVER_ERROR"
     });
   }
 });
@@ -157,12 +439,35 @@ router.get("/profile", auth, async (req, res) => {
 // GET usuarios (solo para desarrollo)
 router.get("/", auth, async (req, res) => {
   try {
-    const users = await User.find().select('-password');
-    res.json(users);
+    console.log('📋 Obteniendo todos los usuarios...');
+    const users = await User.find();
+    const usersWithoutPassword = users.map(user => user.select('-password'));
+    console.log(`✅ Encontrados ${users.length} usuarios`);
+    res.json(usersWithoutPassword);
   } catch (error) {
-    console.error("Error obteniendo usuarios:", error);
+    console.error("❌ Error obteniendo usuarios:", error);
+    
+    // Manejar errores específicos de DynamoDB
+    if (error.name === 'ResourceNotFoundException') {
+      console.log('💡 La tabla no existe. Se creará automáticamente.');
+      return res.status(500).json({
+        success: false,
+        message: "Error de configuración de la base de datos",
+        error: "DB_CONFIG_ERROR"
+      });
+    } else if (error.name === 'AccessDeniedException') {
+      console.log('💡 Error de permisos en DynamoDB.');
+      return res.status(500).json({
+        success: false,
+        message: "Error de permisos en la base de datos",
+        error: "DB_PERMISSION_ERROR"
+      });
+    }
+    
     res.status(500).json({ 
-      message: "Error interno del servidor" 
+      success: false,
+      message: "Error interno del servidor",
+      error: "SERVER_ERROR"
     });
   }
 });

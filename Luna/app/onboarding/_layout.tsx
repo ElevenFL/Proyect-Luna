@@ -3,7 +3,7 @@ import { AuthGuard } from '@/components/AuthGuard';
 
 export default function OnboardingLayout() {
   return (
-    <AuthGuard requireAuth={true}>
+    <AuthGuard requireAuth={true} redirectTo="/(auth)/login">
       <Stack>
         <Stack.Screen name="welcome" options={{ headerShown: false }} />
         <Stack.Screen name="name" options={{ headerShown: false }} />

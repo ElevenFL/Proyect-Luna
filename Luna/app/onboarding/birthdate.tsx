@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Dimensions, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Dimensions, Platform, Alert, ActivityIndicator } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useOnboarding } from '@/hooks/useOnboarding';
 
 const { width, height } = Dimensions.get('window');
 
@@ -11,24 +12,75 @@ export default function BirthdateScreen() {
   const [birthDate, setBirthDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateText, setDateText] = useState('');
+  const [ageError, setAgeError] = useState('');
+  const { updateBirthDate, isLoading, error } = useOnboarding();
+
+  // Función para calcular la edad
+  const calculateAge = (birthDate: Date): number => {
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    
+    return age;
+  };
+
+  // Función para validar la edad
+  const validateAge = (date: Date): boolean => {
+    const age = calculateAge(date);
+    if (age < 18) {
+      setAgeError('Debes ser mayor de 18 años para continuar.');
+      return false;
+    } else {
+      setAgeError('');
+      return true;
+    }
+  };
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(Platform.OS === 'ios');
     if (selectedDate) {
       setBirthDate(selectedDate);
       setDateText(selectedDate.toLocaleDateString('es-ES'));
+      // Validar la edad cuando se selecciona una fecha
+      validateAge(selectedDate);
     }
   };
 
-  const handleNext = () => {
-    if (dateText) {
-      router.push({
-        pathname: '/onboarding/gender',
-        params: { 
-          displayName: displayName as string,
-          birthDate: birthDate.toISOString()
-        }
-      });
+  const handleNext = async () => {
+    if (!dateText || !validateAge(birthDate)) return;
+
+    try {
+      // Guardar la fecha de nacimiento en DynamoDB
+      const success = await updateBirthDate(birthDate.toISOString());
+      
+      if (success) {
+        // Continuar al siguiente paso
+        router.push({
+          pathname: '/onboarding/gender',
+          params: { 
+            displayName: displayName as string,
+            birthDate: birthDate.toISOString()
+          }
+        });
+      } else {
+        // Mostrar error si no se pudo guardar
+        Alert.alert(
+          'Error',
+          'No se pudo guardar tu fecha de nacimiento. Por favor, intenta de nuevo.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (err) {
+      console.error('Error guardando fecha de nacimiento:', err);
+      Alert.alert(
+        'Error',
+        'Ocurrió un error inesperado. Por favor, intenta de nuevo.',
+        [{ text: 'OK' }]
+      );
     }
   };
 
@@ -47,24 +99,40 @@ export default function BirthdateScreen() {
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#FFD700" />
           </TouchableOpacity>
-          <Text style={styles.headerText}>Main</Text>
+          <Text style={styles.headerText}>Principal</Text>
         </View>
 
         {/* Content */}
         <View style={styles.content}>
-          <Text style={styles.question}>What is your date of birth?</Text>
+          <Text style={styles.question}>¿Cuál es tu fecha de nacimiento?</Text>
           
           <View style={styles.inputContainer}>
-            <TouchableOpacity style={styles.input} onPress={openDatePicker}>
+            <TouchableOpacity 
+              style={[styles.input, isLoading && styles.inputDisabled]} 
+              onPress={openDatePicker}
+              disabled={isLoading}
+            >
               <Text style={[styles.inputText, !dateText && styles.placeholderText]}>
-                {dateText || 'Birth date'}
+                {dateText || 'Fecha de nacimiento'}
               </Text>
             </TouchableOpacity>
           </View>
           
-          <Text style={styles.helperText}>
-            This is to personalize your experience.
-          </Text>
+          {/* Mensaje de error de edad */}
+          {ageError ? (
+            <Text style={styles.errorText}>{ageError}</Text>
+          ) : (
+            <Text style={styles.helperText}>
+              Esto es para personalizar tu experiencia.
+            </Text>
+          )}
+
+          {/* Mostrar error del hook si existe */}
+          {error && (
+            <Text style={styles.errorText}>
+              {error}
+            </Text>
+          )}
         </View>
 
         {/* Progress Indicator */}
@@ -82,11 +150,15 @@ export default function BirthdateScreen() {
         {/* Button */}
         <View style={styles.buttonContainer}>
           <TouchableOpacity 
-            style={[styles.button, !dateText && styles.buttonDisabled]} 
+            style={[styles.button, (!dateText || ageError || isLoading) && styles.buttonDisabled]} 
             onPress={handleNext}
-            disabled={!dateText}
+            disabled={!dateText || !!ageError || isLoading}
           >
-            <Text style={styles.buttonText}>Next</Text>
+            {isLoading ? (
+              <ActivityIndicator color="#000000" />
+            ) : (
+              <Text style={styles.buttonText}>Siguiente</Text>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -148,6 +220,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     backgroundColor: 'transparent',
   },
+  inputDisabled: {
+    opacity: 0.5,
+  },
   inputText: {
     fontSize: 16,
     color: '#FFFFFF',
@@ -159,6 +234,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#CCCCCC',
     textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 10,
+  },
+  errorText: {
+    color: '#FF6B6B',
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 10,
     lineHeight: 20,
   },
   progressContainer: {

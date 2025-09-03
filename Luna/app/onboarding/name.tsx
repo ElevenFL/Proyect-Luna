@@ -1,19 +1,43 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Dimensions, Alert, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useOnboarding } from '@/hooks/useOnboarding';
 
 const { width, height } = Dimensions.get('window');
 
 export default function NameScreen() {
   const [displayName, setDisplayName] = useState('');
+  const { updateName, isLoading, error } = useOnboarding();
 
-  const handleNext = () => {
-    if (displayName.trim()) {
-      router.push({
-        pathname: '/onboarding/birthdate',
-        params: { displayName: displayName.trim() }
-      });
+  const handleNext = async () => {
+    if (!displayName.trim()) return;
+
+    try {
+      // Guardar el nombre en DynamoDB
+      const success = await updateName(displayName.trim());
+      
+      if (success) {
+        // Continuar al siguiente paso
+        router.push({
+          pathname: '/onboarding/birthdate',
+          params: { displayName: displayName.trim() }
+        });
+      } else {
+        // Mostrar error si no se pudo guardar
+        Alert.alert(
+          'Error',
+          'No se pudo guardar tu nombre. Por favor, intenta de nuevo.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (err) {
+      console.error('Error guardando nombre:', err);
+      Alert.alert(
+        'Error',
+        'Ocurrió un error inesperado. Por favor, intenta de nuevo.',
+        [{ text: 'OK' }]
+      );
     }
   };
 
@@ -32,22 +56,30 @@ export default function NameScreen() {
 
         {/* Content */}
         <View style={styles.content}>
-          <Text style={styles.question}>Whats your name?</Text>
+          <Text style={styles.question}>¿Cuál es tu nombre?</Text>
           
           <View style={styles.inputContainer}>
             <TextInput
               style={styles.input}
-              placeholder="Write your name"
+              placeholder="Escribe tu nombre"
               placeholderTextColor="#666666"
               value={displayName}
               onChangeText={setDisplayName}
               autoFocus
+              editable={!isLoading}
             />
           </View>
           
           <Text style={styles.helperText}>
-            This is to personalize your experience and will not be visible on your profile.
+            Esto es para personalizar tu experiencia y no será visible en tu perfil público.
           </Text>
+
+          {/* Mostrar error si existe */}
+          {error && (
+            <Text style={styles.errorText}>
+              {error}
+            </Text>
+          )}
         </View>
 
         {/* Progress Indicator */}
@@ -65,11 +97,15 @@ export default function NameScreen() {
         {/* Button */}
         <View style={styles.buttonContainer}>
           <TouchableOpacity 
-            style={[styles.button, !displayName.trim() && styles.buttonDisabled]} 
+            style={[styles.button, (!displayName.trim() || isLoading) && styles.buttonDisabled]} 
             onPress={handleNext}
-            disabled={!displayName.trim()}
+            disabled={!displayName.trim() || isLoading}
           >
-            <Text style={styles.buttonText}>Next</Text>
+            {isLoading ? (
+              <ActivityIndicator color="#000000" />
+            ) : (
+              <Text style={styles.buttonText}>Siguiente</Text>
+            )}
           </TouchableOpacity>
         </View>
     </View>
@@ -124,6 +160,13 @@ const styles = StyleSheet.create({
   helperText: {
     fontSize: 14,
     color: '#CCCCCC',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 10,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#FF6B6B',
     textAlign: 'center',
     lineHeight: 20,
   },

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, ImageProps, StyleProp, ImageStyle } from 'expo-image';
+import { Image, ImageProps, ImageStyle } from 'expo-image';
+import { StyleProp } from 'react-native';
 import { ImageService } from '../services/imageService';
 
 interface OptimizedImageProps extends Omit<ImageProps, 'source'> {
@@ -32,7 +33,6 @@ export const OptimizedImage: React.FC<OptimizedImageProps> = ({
         },
       }}
       placeholder={placeholder}
-      fallback={fallback}
       style={style}
       cachePolicy={cachePolicy}
       priority={priority}

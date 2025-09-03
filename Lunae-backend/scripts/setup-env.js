@@ -46,3 +46,4 @@ try {
   console.error('❌ Error creando archivo .env:', error.message);
   process.exit(1);
 }
+

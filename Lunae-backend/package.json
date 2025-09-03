@@ -6,9 +6,17 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test-server": "node src/test-server.js",
+    "test-server": "node scripts/test-server.js",
+    "test-user-flow": "node scripts/test-user-flow.js",
+    "test-sync-flow": "node scripts/test-sync-flow.js",
+    "test-user-creation": "node scripts/test-user-creation.js",
+    "verify-setup": "node scripts/verify-setup.js",
+    "debug-credentials": "node scripts/debug-credentials.js",
     "setup-aws": "node scripts/setup-aws.js",
     "setup-env": "node scripts/setup-env.js",
+    "setup-dynamodb": "node scripts/setup-dynamodb.js",
+    "migrate-mongodb": "node scripts/migrate-mongodb-to-dynamodb.js",
+    "quick-setup": "node scripts/quick-setup.js",
     "quick-start": "node scripts/quick-start.js"
   },
   "keywords": [],
@@ -17,17 +25,22 @@
   "type": "module",
   "description": "",
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.879.0",
     "@aws-sdk/client-s3": "^3.879.0",
+    "@aws-sdk/lib-dynamodb": "^3.879.0",
     "@aws-sdk/s3-request-presigner": "^3.879.0",
+    "aws-sdk": "^2.1692.0",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
-    "multer-s3": "^3.0.1"
+    "multer-s3": "^3.0.1",
+    "node-fetch": "^3.3.2"
   },
   "devDependencies": {
+    "mongoose": "^8.18.0",
     "nodemon": "^3.1.10"
   }
 }

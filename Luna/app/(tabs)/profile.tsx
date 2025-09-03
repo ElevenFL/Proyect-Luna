@@ -1,19 +1,43 @@
-import React from 'react';
-import { View, Text, StyleSheet, StatusBar, TouchableOpacity, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, StatusBar, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
+import { router } from 'expo-router';
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleLogout = () => {
+    console.log('handleLogout llamado');
     Alert.alert(
       'Cerrar Sesión',
-      '¿Estás seguro de que quieres cerrar sesión?',
+      '¿Estás seguro de que quieres cerrar sesión? Se eliminarán todos los datos de la sesión actual.',
       [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Cerrar Sesión', style: 'destructive', onPress: logout }
+        { 
+          text: 'Cancelar', 
+          style: 'cancel',
+          onPress: () => console.log('Logout cancelado')
+        },
+        { 
+          text: 'Cerrar Sesión', 
+          style: 'destructive', 
+          onPress: async () => {
+            console.log('Iniciando proceso de logout...');
+            setIsLoggingOut(true);
+            try {
+              await logout();
+              console.log('Logout completado exitosamente');
+              // Redirección manual después del logout
+              router.replace('/(auth)/welcome');
+            } catch (error) {
+              console.error('Error durante logout:', error);
+              Alert.alert('Error', 'Hubo un problema al cerrar sesión. Inténtalo de nuevo.');
+              setIsLoggingOut(false);
+            }
+          }
+        }
       ]
     );
   };
@@ -70,9 +94,23 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={24} color="#FF6B6B" />
-            <Text style={styles.logoutText}>Cerrar Sesión</Text>
+          {/* Botón de logout */}
+          <TouchableOpacity 
+            style={[styles.logoutButton, isLoggingOut && styles.logoutButtonDisabled]} 
+            onPress={() => {
+              console.log('Botón de logout presionado');
+              handleLogout();
+            }}
+            disabled={isLoggingOut}
+          >
+            {isLoggingOut ? (
+              <ActivityIndicator size="small" color="#FF6B6B" />
+            ) : (
+              <Ionicons name="log-out-outline" size={24} color="#FF6B6B" />
+            )}
+            <Text style={styles.logoutText}>
+              {isLoggingOut ? 'Cerrando Sesión...' : 'Cerrar Sesión'}
+            </Text>
           </TouchableOpacity>
         </View>
       </LinearGradient>
@@ -150,6 +188,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 107, 107, 0.3)',
+  },
+  logoutButtonDisabled: {
+    opacity: 0.6,
   },
   logoutText: {
     fontSize: 16,

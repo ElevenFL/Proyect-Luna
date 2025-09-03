@@ -22,3 +22,4 @@ app.get("/health", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🧪 Servidor de prueba corriendo en http://localhost:${PORT}`);
 });
+

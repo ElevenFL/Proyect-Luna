@@ -34,12 +34,42 @@ export default function LoginScreen() {
     if (result.success) {
       router.replace('/(tabs)');
     } else {
-      Alert.alert('Error', result.message);
+      if (result.error === 'USER_NOT_CONFIRMED') {
+        // Usuario no confirmado - redirigir automáticamente a verificación
+        router.push({
+          pathname: '/(auth)/verify',
+          params: { username: usernameOrEmail }
+        });
+      } else if (result.error === 'INVALID_CREDENTIALS') {
+        Alert.alert(
+          'Error de credenciales', 
+          result.message,
+          [
+            {
+              text: 'Ir a Verificar',
+              onPress: () => router.push({
+                pathname: '/(auth)/verify',
+                params: { username: usernameOrEmail }
+              })
+            },
+            {
+              text: 'Registrarse',
+              onPress: () => router.push('/(auth)/register')
+            },
+            {
+              text: 'Intentar de nuevo',
+              style: 'cancel'
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Error', result.message);
+      }
     }
   };
 
   const goToRegister = () => {
-    router.push('/register');
+    router.push('/(auth)/register');
   };
 
   return (
