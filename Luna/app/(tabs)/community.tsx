@@ -7,15 +7,10 @@ export default function CommunityScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
       
-      <LinearGradient
-        colors={['#000000', '#1a1a1a']}
-        style={styles.gradient}
-      >
         <View style={styles.content}>
           <Text style={styles.title}>Comunidad</Text>
           <Text style={styles.subtitle}>Próximamente...</Text>
         </View>
-      </LinearGradient>
     </View>
   );
 }
@@ -23,6 +18,7 @@ export default function CommunityScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#1a1a1a',
   },
   gradient: {
     flex: 1,

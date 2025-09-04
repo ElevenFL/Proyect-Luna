@@ -129,13 +129,13 @@ const styles = StyleSheet.create({
   profileImage: {
     width: 50,
     height: 50,
-    borderRadius: 25,
+    borderRadius: 16,
   },
   profilePlaceholder: {
     width: 50,
     height: 50,
-    borderRadius: 25,
-    backgroundColor: '#FFD700',
+    borderRadius: 16,
+    backgroundColor: '#F9C80E',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -146,12 +146,12 @@ const styles = StyleSheet.create({
   },
   statusIndicator: {
     position: 'absolute',
-    bottom: 2,
-    right: 2,
+    bottom: 38,
+    right: -2,
     width: 12,
     height: 12,
     borderRadius: 6,
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: '#000000',
   },
   userInfo: {

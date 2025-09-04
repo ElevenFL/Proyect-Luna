@@ -46,10 +46,6 @@ export default function ProfileScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
       
-      <LinearGradient
-        colors={['#000000', '#1a1a1a']}
-        style={styles.gradient}
-      >
         <View style={styles.content}>
           <View style={styles.profileHeader}>
             <View style={styles.profileImageContainer}>
@@ -113,7 +109,6 @@ export default function ProfileScreen() {
             </Text>
           </TouchableOpacity>
         </View>
-      </LinearGradient>
     </View>
   );
 }
@@ -121,6 +116,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#1d1d1d',
   },
   gradient: {
     flex: 1,

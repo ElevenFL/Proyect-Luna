@@ -125,13 +125,8 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
       
-      <LinearGradient
-        colors={['#000000', '#1a1a1a']}
-        style={styles.gradient}
-      >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.headerText}>Home</Text>
           <Text style={styles.title}>Lunea</Text>
           <View style={styles.headerIcons}>
             <TouchableOpacity onPress={handleFilterPress} style={styles.iconButton}>
@@ -153,7 +148,6 @@ export default function HomeScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
         />
-      </LinearGradient>
     </View>
   );
 }
@@ -161,25 +155,26 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#1a1a1a',
   },
   gradient: {
     flex: 1,
   },
   header: {
-    paddingTop: 60,
+    paddingTop: 50,
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingBottom: 0,
   },
   headerText: {
     fontSize: 16,
     color: '#CCCCCC',
-    marginBottom: 8,
+    marginBottom: 5,
   },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
     color: '#FFD700',
-    marginBottom: 20,
+    marginBottom: 10,
   },
   headerIcons: {
     position: 'absolute',

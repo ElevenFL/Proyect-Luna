@@ -42,8 +42,7 @@ export const generateUploadUrl = async (req, res) => {
       Bucket: BUCKET_NAME,
       Key: key,
       ContentType: contentType,
-      // Configurar para acceso público (opcional, para imágenes de perfil)
-      ACL: 'public-read',
+      // Nota: ACL removido - el bucket debe estar configurado para acceso público por política
     });
 
     // Generar URL firmada para subida (válida por 15 minutos)
