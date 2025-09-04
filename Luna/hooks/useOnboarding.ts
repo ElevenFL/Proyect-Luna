@@ -49,6 +49,8 @@ export const useOnboarding = () => {
       const updateData = { [field]: value };
       
       smartLog.info(`Actualizando campo ${field} en DynamoDB...`);
+      smartLog.info(`Datos a enviar:`, updateData);
+      
       const response = await ApiService.updateProfile(updateData);
 
       if (response.success) {
@@ -62,14 +64,26 @@ export const useOnboarding = () => {
         
         return true;
       } else {
-        setError(response.message || `Error actualizando ${field}`);
-        smartLog.error(`❌ Error actualizando ${field}:`, response.message);
+        const errorMsg = response.message || `Error actualizando ${field}`;
+        setError(errorMsg);
+        smartLog.error(`❌ Error actualizando ${field}:`, errorMsg);
         return false;
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
-      setError(`Error actualizando ${field}: ${errorMessage}`);
-      smartLog.error(`❌ Error en updateProfileField para ${field}:`, err);
+      
+      // Manejar errores específicos de autenticación
+      if (errorMessage.includes('Sesión expirada') || errorMessage.includes('Token expirado')) {
+        setError('Sesión expirada. Por favor, inicie sesión nuevamente.');
+        smartLog.error(`❌ Error de autenticación en updateProfileField para ${field}:`, err);
+        
+        // Aquí podrías redirigir al login o refrescar el token
+        // Por ahora, solo mostramos el error
+      } else {
+        setError(`Error actualizando ${field}: ${errorMessage}`);
+        smartLog.error(`❌ Error en updateProfileField para ${field}:`, err);
+      }
+      
       return false;
     } finally {
       setIsLoading(false);
@@ -159,7 +173,7 @@ export const useOnboarding = () => {
       if (response.success) {
         smartLog.info('✅ Perfil marcado como completado exitosamente');
         
-        // Actualizar estado local
+        // Actualizar estado local del usuario
         updateUserProfile({ profileCompleted: true });
         
         // Marcar el paso final como completado

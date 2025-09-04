@@ -2,12 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
+import { useOnboarding } from '@/hooks/useOnboarding';
 
 const { width, height } = Dimensions.get('window');
 
 export default function CompleteScreen() {
   const { displayName, birthDate, gender, profileImage, location } = useLocalSearchParams();
   const { token, updateUserProfile } = useAuth();
+  const { markProfileCompleted } = useOnboarding();
   const [isLoading, setIsLoading] = useState(false);
 
   const updateProfile = async () => {
@@ -20,24 +22,10 @@ export default function CompleteScreen() {
     try {
       const locationData = location ? JSON.parse(location as string) : {};
       
-      const response = await fetch('http://localhost:3000/api/profile', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          displayName: displayName as string,
-          birthDate: birthDate as string,
-          gender: gender as string,
-          profileImage: profileImage as string,
-          location: locationData,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
+      // Actualizar el perfil usando el hook useOnboarding
+      const success = await markProfileCompleted();
+      
+      if (success) {
         // Actualizar el contexto local con los nuevos datos
         updateUserProfile({
           displayName: displayName as string,
@@ -51,7 +39,7 @@ export default function CompleteScreen() {
         // Navegar a la pantalla principal
         router.replace('/(tabs)');
       } else {
-        Alert.alert('Error', data.message || 'Error al actualizar el perfil');
+        Alert.alert('Error', 'Error al marcar el perfil como completo');
       }
     } catch (error) {
       console.error('Error actualizando perfil:', error);
@@ -67,10 +55,6 @@ export default function CompleteScreen() {
 
   return (
     <View style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.headerText}>Main</Text>
-        </View>
 
         {/* Content */}
         <View style={styles.content}>

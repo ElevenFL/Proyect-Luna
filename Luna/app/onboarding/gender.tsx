@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert, ActivityIndicator } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useOnboarding } from '@/hooks/useOnboarding';
 
 const { width, height } = Dimensions.get('window');
 
@@ -38,21 +39,44 @@ const genderOptions: GenderOptionData[] = [
 export default function GenderScreen() {
   const { displayName, birthDate } = useLocalSearchParams();
   const [selectedGender, setSelectedGender] = useState<GenderOption | null>(null);
+  const { updateGender, isLoading, error } = useOnboarding();
 
   const handleGenderSelect = (gender: GenderOption) => {
     setSelectedGender(gender);
   };
 
-  const handleNext = () => {
-    if (selectedGender) {
-      router.push({
-        pathname: '/onboarding/photo',
-        params: { 
-          displayName: displayName as string,
-          birthDate: birthDate as string,
-          gender: selectedGender
-        }
-      });
+  const handleNext = async () => {
+    if (!selectedGender) return;
+
+    try {
+      // Guardar el género en DynamoDB
+      const success = await updateGender(selectedGender);
+      
+      if (success) {
+        // Continuar al siguiente paso
+        router.push({
+          pathname: '/onboarding/photo',
+          params: { 
+            displayName: displayName as string,
+            birthDate: birthDate as string,
+            gender: selectedGender
+          }
+        });
+      } else {
+        // Mostrar error si no se pudo guardar
+        Alert.alert(
+          'Error',
+          'No se pudo guardar tu género. Por favor, intenta de nuevo.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (err) {
+      console.error('Error guardando género:', err);
+      Alert.alert(
+        'Error',
+        'Ocurrió un error inesperado. Por favor, intenta de nuevo.',
+        [{ text: 'OK' }]
+      );
     }
   };
 
@@ -67,7 +91,6 @@ export default function GenderScreen() {
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#FFD700" />
           </TouchableOpacity>
-          <Text style={styles.headerText}>Main</Text>
         </View>
 
         {/* Content */}
@@ -142,11 +165,22 @@ export default function GenderScreen() {
           <TouchableOpacity 
             style={[styles.button, !selectedGender && styles.buttonDisabled]} 
             onPress={handleNext}
-            disabled={!selectedGender}
+            disabled={!selectedGender || isLoading}
           >
-            <Text style={styles.buttonText}>Siguiente</Text>
+            {isLoading ? (
+              <ActivityIndicator color="#000000" size="small" />
+            ) : (
+              <Text style={styles.buttonText}>Siguiente</Text>
+            )}
           </TouchableOpacity>
         </View>
+        
+        {/* Error Display */}
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
     </View>
   );
 }
@@ -280,5 +314,15 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontSize: 16,
     fontWeight: '600',
+  },
+  errorContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  errorText: {
+    color: '#FF6B6B',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });

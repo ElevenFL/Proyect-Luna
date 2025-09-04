@@ -99,7 +99,6 @@ export default function BirthdateScreen() {
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#FFD700" />
           </TouchableOpacity>
-          <Text style={styles.headerText}>Principal</Text>
         </View>
 
         {/* Content */}

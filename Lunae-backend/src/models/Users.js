@@ -144,12 +144,46 @@ export class User {
           const createTableCommand = new CreateTableCommand({
             TableName: TABLE_NAME,
             KeySchema: [
-              { AttributeName: 'id', KeyType: 'HASH' } // Partition key
+              { AttributeName: 'PK', KeyType: 'HASH' }, // Partition key
+              { AttributeName: 'SK', KeyType: 'RANGE' }  // Sort key
             ],
             AttributeDefinitions: [
-              { AttributeName: 'id', AttributeType: 'S' }
+              { AttributeName: 'PK', AttributeType: 'S' },
+              { AttributeName: 'SK', AttributeType: 'S' },
+              { AttributeName: 'email', AttributeType: 'S' },
+              { AttributeName: 'username', AttributeType: 'S' },
+              { AttributeName: 'amplifySub', AttributeType: 'S' }
             ],
             BillingMode: 'PAY_PER_REQUEST', // On-demand billing
+            GlobalSecondaryIndexes: [
+              {
+                IndexName: 'email-index',
+                KeySchema: [
+                  { AttributeName: 'email', KeyType: 'HASH' }
+                ],
+                Projection: {
+                  ProjectionType: 'ALL'
+                }
+              },
+              {
+                IndexName: 'username-index',
+                KeySchema: [
+                  { AttributeName: 'username', KeyType: 'HASH' }
+                ],
+                Projection: {
+                  ProjectionType: 'ALL'
+                }
+              },
+              {
+                IndexName: 'amplifySub-index',
+                KeySchema: [
+                  { AttributeName: 'amplifySub', KeyType: 'HASH' }
+                ],
+                Projection: {
+                  ProjectionType: 'ALL'
+                }
+              }
+            ]
           });
 
           await tableClient.send(createTableCommand);
@@ -315,10 +349,11 @@ export class User {
       // Asegurar que la tabla existe
       await this.ensureTableExists();
       
-      // Usar Scan con filtro para buscar por email
-      const command = new ScanCommand({
+      // Usar Query con el índice de email
+      const command = new QueryCommand({
         TableName: TABLE_NAME,
-        FilterExpression: 'email = :email',
+        IndexName: 'email-index',
+        KeyConditionExpression: 'email = :email',
         ExpressionAttributeValues: {
           ':email': email
         }
@@ -343,10 +378,11 @@ export class User {
       // Asegurar que la tabla existe
       await this.ensureTableExists();
       
-      // Usar Scan con filtro ya que no tenemos índices
-      const command = new ScanCommand({
+      // Usar Query con el índice de username
+      const command = new QueryCommand({
         TableName: TABLE_NAME,
-        FilterExpression: 'username = :username',
+        IndexName: 'username-index',
+        KeyConditionExpression: 'username = :username',
         ExpressionAttributeValues: {
           ':username': username
         }
@@ -371,10 +407,11 @@ export class User {
       // Asegurar que la tabla existe
       await this.ensureTableExists();
       
-      // Usar Scan con filtro ya que no tenemos índices
-      const command = new ScanCommand({
+      // Usar Query con el índice de amplifySub
+      const command = new QueryCommand({
         TableName: TABLE_NAME,
-        FilterExpression: 'amplifySub = :amplifySub',
+        IndexName: 'amplifySub-index',
+        KeyConditionExpression: 'amplifySub = :amplifySub',
         ExpressionAttributeValues: {
           ':amplifySub': amplifySub
         }
@@ -456,7 +493,22 @@ export class User {
           
           updateExpressions.push(`${attrName} = ${attrValue}`);
           expressionAttributeNames[attrName] = key;
-          expressionAttributeValues[attrValue] = updateData[key];
+          
+          // Convertir fechas a strings ISO si es necesario
+          let value = updateData[key];
+          if (value instanceof Date) {
+            value = value.toISOString();
+          } else if (key === 'birthDate' && value) {
+            // Si birthDate es un string de fecha, convertirlo a ISO
+            try {
+              value = new Date(value).toISOString();
+            } catch (dateError) {
+              console.warn(`⚠️ Error convirtiendo birthDate: ${value}`, dateError);
+              // Mantener el valor original si no se puede convertir
+            }
+          }
+          
+          expressionAttributeValues[attrValue] = value;
         }
       });
 

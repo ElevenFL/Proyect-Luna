@@ -11,11 +11,6 @@ export default function WelcomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Main</Text>
-      </View>
-
       {/* Content */}
       <View style={styles.content}>
         <View style={styles.logoContainer}>

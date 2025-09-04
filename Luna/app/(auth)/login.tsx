@@ -32,7 +32,14 @@ export default function LoginScreen() {
     setIsLoading(false);
 
     if (result.success) {
-      router.replace('/(tabs)');
+      // Verificar si el usuario necesita completar el onboarding
+      if (result.user && !result.user.profileCompleted) {
+        console.log('🔀 Usuario sin perfil completo, redirigiendo al onboarding');
+        router.replace('/onboarding/welcome');
+      } else {
+        console.log('✅ Usuario con perfil completo, redirigiendo a las tabs');
+        router.replace('/(tabs)');
+      }
     } else {
       if (result.error === 'USER_NOT_CONFIRMED') {
         // Usuario no confirmado - redirigir automáticamente a verificación

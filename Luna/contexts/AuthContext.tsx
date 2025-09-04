@@ -92,10 +92,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, []);
 
-  // Efecto para sincronizar el token con ImageService
+  // Efecto para sincronizar el token con ImageService y ApiService
   useEffect(() => {
     if (token) {
       ImageService.setAuthToken(token);
+      ApiService.setAuthToken(token);
+      smartLog.info('AuthContext: Token sincronizado con ImageService y ApiService');
     }
   }, [token]);
 
@@ -273,6 +275,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Sincronizar automáticamente con DynamoDB después del login exitoso
         try {
           console.log('Sincronizando usuario después del login con DynamoDB...');
+          
+          // Establecer el token en ApiService antes de hacer la sincronización
+          if (accessToken) {
+            ApiService.setAuthToken(accessToken);
+          }
+          
           const syncResponse = await ApiService.post('/users/sync-amplify', {
             username: currentUser.username,
             email: currentUser.signInDetails?.loginId || '',
@@ -290,7 +298,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
         } catch (syncError) {
           console.error('❌ Error en sincronización después del login:', syncError);
+          
+          // Proporcionar información más específica sobre el error
+          if (syncError instanceof Error) {
+            if (syncError.message.includes('Error interno del servidor')) {
+              console.error('💡 Posibles causas del error interno:');
+              console.error('   - La tabla de DynamoDB no existe o no está configurada correctamente');
+              console.error('   - Credenciales de AWS incorrectas o permisos insuficientes');
+              console.error('   - El backend no está corriendo o no es accesible');
+              console.error('   - Error en la estructura de la base de datos');
+            } else if (syncError.message.includes('fetch')) {
+              console.error('💡 Error de conectividad:');
+              console.error('   - Verifica que el backend esté corriendo');
+              console.error('   - Verifica la URL del backend en la configuración');
+              console.error('   - Verifica la conexión de red');
+            }
+          }
+          
           // Continuar con el flujo aunque haya error de sincronización
+          console.log('⚠️ Continuando con el login sin sincronización...');
         }
         
         setUser(userData);
@@ -668,6 +694,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   ['userData', JSON.stringify(userData)],
                   ['authType', 'amplify']
                 ]);
+                
+                // Si el usuario ya tiene el perfil completado, redirigir a las tabs
+                if (syncResponse.data.user.profileCompleted) {
+                  console.log('✅ Usuario verificado con perfil completo');
+                } else {
+                  console.log('⚠️ Usuario verificado sin perfil completo, debe completar onboarding');
+                }
                 
                 return {
                   success: true,

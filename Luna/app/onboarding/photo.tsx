@@ -1,8 +1,9 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert, ActivityIndicator } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useProfileImage } from '../../hooks/useProfileImage';
+import { useOnboarding } from '../../hooks/useOnboarding';
 import OptimizedImage from '../../components/OptimizedImage';
 
 const { width, height } = Dimensions.get('window');
@@ -23,6 +24,7 @@ export default function PhotoScreen() {
     quality: 0.8,
     format: 'jpeg'
   });
+  const { updateProfileImage, isLoading: isUpdatingProfile, error } = useOnboarding();
 
   // Obtener iniciales del nombre
   const getInitials = (name: string) => {
@@ -39,7 +41,20 @@ export default function PhotoScreen() {
       let imageUrl = '';
       
       if (profileImage) {
+        // Subir imagen a S3
         imageUrl = await uploadImage(profileImage, 'profile-images');
+        
+        // Guardar la URL de la imagen en DynamoDB
+        const success = await updateProfileImage(imageUrl);
+        
+        if (!success) {
+          Alert.alert(
+            'Error',
+            'No se pudo guardar la imagen de perfil. Por favor, intenta de nuevo.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
       }
 
       router.push({
@@ -53,7 +68,11 @@ export default function PhotoScreen() {
       });
     } catch (error) {
       console.error('Error procesando imagen:', error);
-      // El error ya se maneja en el hook
+      Alert.alert(
+        'Error',
+        'Ocurrió un error al procesar la imagen. Por favor, intenta de nuevo.',
+        [{ text: 'OK' }]
+      );
     }
   };
 
@@ -70,7 +89,6 @@ export default function PhotoScreen() {
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#FFD700" />
           </TouchableOpacity>
-          <Text style={styles.headerText}>Main</Text>
         </View>
 
         {/* Content */}

@@ -358,6 +358,9 @@ router.post("/sync-amplify", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error en sincronización:", error);
+    console.error("❌ Stack trace:", error.stack);
+    console.error("❌ Error name:", error.name);
+    console.error("❌ Error message:", error.message);
     
     // Manejar errores específicos de DynamoDB
     if (error.name === 'ConditionalCheckFailedException') {
@@ -367,25 +370,89 @@ router.post("/sync-amplify", async (req, res) => {
         error: "USER_EXISTS"
       });
     } else if (error.name === 'ResourceNotFoundException') {
-      console.log('💡 La tabla no existe. Se creará automáticamente.');
-      return res.status(500).json({
-        success: false,
-        message: "Error de configuración de la base de datos",
-        error: "DB_CONFIG_ERROR"
-      });
+      console.log('💡 La tabla no existe. Intentando crearla automáticamente...');
+      try {
+        await User.ensureTableExists();
+        console.log('✅ Tabla creada, reintentando sincronización...');
+        // Reintentar la operación después de crear la tabla
+        const existingUser = await User.findByEmail(email);
+        if (existingUser) {
+          return res.status(200).json({
+            success: true,
+            message: "Usuario ya existe en la base de datos",
+            data: {
+              user: {
+                id: existingUser.id,
+                username: existingUser.username,
+                email: existingUser.email,
+                profileCompleted: existingUser.profileCompleted
+              }
+            }
+          });
+        } else {
+          const newUser = await User.create({
+            username,
+            email,
+            amplifySub: sub,
+            active: true,
+            profileCompleted: false,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+          
+          return res.status(201).json({
+            success: true,
+            message: "Usuario sincronizado exitosamente",
+            data: {
+              user: {
+                id: newUser.id,
+                username: newUser.username,
+                email: newUser.email,
+                profileCompleted: false
+              }
+            }
+          });
+        }
+      } catch (retryError) {
+        console.error('❌ Error en reintento:', retryError);
+        return res.status(500).json({
+          success: false,
+          message: "Error de configuración de la base de datos",
+          error: "DB_CONFIG_ERROR",
+          details: retryError.message
+        });
+      }
     } else if (error.name === 'AccessDeniedException') {
       console.log('💡 Error de permisos en DynamoDB.');
       return res.status(500).json({
         success: false,
         message: "Error de permisos en la base de datos",
-        error: "DB_PERMISSION_ERROR"
+        error: "DB_PERMISSION_ERROR",
+        details: "Verifica las credenciales de AWS y los permisos de DynamoDB"
+      });
+    } else if (error.name === 'UnrecognizedClientException') {
+      console.log('💡 Error de configuración del cliente AWS.');
+      return res.status(500).json({
+        success: false,
+        message: "Error de configuración del cliente AWS",
+        error: "AWS_CONFIG_ERROR",
+        details: "Verifica la región y las credenciales de AWS"
+      });
+    } else if (error.name === 'ValidationException') {
+      console.log('💡 Error de validación en DynamoDB.');
+      return res.status(500).json({
+        success: false,
+        message: "Error de validación en la base de datos",
+        error: "DB_VALIDATION_ERROR",
+        details: error.message
       });
     }
     
     res.status(500).json({ 
       success: false,
       message: "Error interno del servidor",
-      error: "SERVER_ERROR"
+      error: "SERVER_ERROR",
+      details: error.message
     });
   }
 });

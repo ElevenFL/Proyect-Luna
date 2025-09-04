@@ -1,4 +1,5 @@
 import * as ImageManipulator from 'expo-image-manipulator';
+import { Image } from 'react-native';
 import { API_CONFIG } from '../config/api';
 import ApiService from './apiService';
 
@@ -215,19 +216,43 @@ export class ImageService {
       
       for (let attempt = 1; attempt <= API_CONFIG.RETRY.MAX_ATTEMPTS; attempt++) {
         try {
-          uploadResponse = await fetch(presignedData.uploadUrl, {
-            method: 'PUT',
-            body: blob,
-            headers: {
-              'Content-Type': blob.type,
-            },
+          console.log(`Intento de subida ${attempt} a S3:`, {
+            url: presignedData.uploadUrl,
+            blobSize: blob.size,
+            blobType: blob.type,
+            key: presignedData.key
           });
           
+          // Intentar con fetch primero
+          try {
+            uploadResponse = await fetch(presignedData.uploadUrl, {
+              method: 'PUT',
+              body: blob,
+              // No incluir headers - la URL presignada ya los contiene
+            });
+          } catch (fetchError) {
+            console.error('Error con fetch, intentando con XMLHttpRequest:', fetchError);
+            
+            // Fallback a XMLHttpRequest si fetch falla
+            uploadResponse = await this.uploadWithXHR(presignedData.uploadUrl, blob);
+          }
+          
           if (uploadResponse.ok) {
+            console.log('Subida exitosa a S3');
             break;
           }
           
-          throw new Error(`Error subiendo a S3: ${uploadResponse.status} ${uploadResponse.statusText}`);
+          // Obtener más detalles del error
+          let errorDetails = '';
+          try {
+            const errorText = await uploadResponse.text();
+            errorDetails = errorText;
+          } catch (e) {
+            errorDetails = 'No se pudo obtener detalles del error';
+          }
+          
+          console.error(`Error S3 - Status: ${uploadResponse.status}, StatusText: ${uploadResponse.statusText}, Details: ${errorDetails}`);
+          throw new Error(`Error subiendo a S3: ${uploadResponse.status} ${uploadResponse.statusText} - ${errorDetails}`);
         } catch (error) {
           lastError = error instanceof Error ? error : new Error('Error desconocido');
           console.error(`Intento de subida ${attempt} fallido:`, lastError);
@@ -308,6 +333,40 @@ export class ImageService {
   }
 
   /**
+   * Sube un blob usando XMLHttpRequest como fallback
+   */
+  static uploadWithXHR(url: string, blob: Blob): Promise<Response> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      
+      xhr.open('PUT', url, true);
+      
+      xhr.onload = () => {
+        // Crear un objeto Response similar al de fetch
+        const response = new Response(blob, {
+          status: xhr.status,
+          statusText: xhr.statusText,
+          headers: new Headers({
+            'Content-Type': xhr.getResponseHeader('Content-Type') || '',
+          }),
+        });
+        resolve(response);
+      };
+      
+      xhr.onerror = () => {
+        reject(new Error('Error de red con XMLHttpRequest'));
+      };
+      
+      xhr.ontimeout = () => {
+        reject(new Error('Timeout con XMLHttpRequest'));
+      };
+      
+      xhr.timeout = 30000; // 30 segundos
+      xhr.send(blob);
+    });
+  }
+
+  /**
    * Genera un hash simple para el cacheo de imágenes
    */
   static generateImageHash(url: string): string {
@@ -325,12 +384,15 @@ export class ImageService {
    */
   static async getImageDimensions(imageUri: string): Promise<{ width: number; height: number }> {
     return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        resolve({ width: img.width, height: img.height });
-      };
-      img.onerror = reject;
-      img.src = imageUri;
+      Image.getSize(
+        imageUri,
+        (width, height) => {
+          resolve({ width, height });
+        },
+        (error) => {
+          reject(error);
+        }
+      );
     });
   }
 

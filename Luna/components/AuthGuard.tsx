@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import { getAppConfig } from '@/config/appConfig';
 
 interface AuthGuardProps {
@@ -19,6 +19,7 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
   const [showTimeoutMessage, setShowTimeoutMessage] = useState(false);
   const [redirectAttempts, setRedirectAttempts] = useState(0);
   const config = getAppConfig();
+  const currentRoute = usePathname();
 
   // Efecto para manejar la redirección cuando el usuario se desautentica
   useEffect(() => {
@@ -45,18 +46,29 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
   useEffect(() => {
     if (!isLoading && user && requireAuth) {
       // Si el usuario está en las tabs pero no tiene el perfil completado, redirigir al onboarding
-      if (!user.profileCompleted && window.location.pathname.includes('/(tabs)')) {
+      if (!user.profileCompleted && currentRoute.includes('/(tabs)')) {
         console.log('AuthGuard: Usuario sin perfil completo, redirigiendo al onboarding');
-        router.replace('/onboarding/welcome');
+        router.replace('/onboarding/welcome' as any);
       }
       
       // Si el usuario está en el onboarding pero ya tiene el perfil completo, redirigir a las tabs
-      if (user.profileCompleted && window.location.pathname.includes('/onboarding')) {
+      if (user.profileCompleted && currentRoute.includes('/onboarding')) {
         console.log('AuthGuard: Usuario con perfil completo, redirigiendo a las tabs');
-        router.replace('/(tabs)');
+        router.replace('/(tabs)' as any);
+      }
+      
+      // Si el usuario está en la página de login pero ya está autenticado, redirigir según el estado del perfil
+      if (currentRoute.includes('/(auth)/login') && user) {
+        if (user.profileCompleted) {
+          console.log('AuthGuard: Usuario autenticado con perfil completo, redirigiendo a las tabs');
+          router.replace('/(tabs)' as any);
+        } else {
+          console.log('AuthGuard: Usuario autenticado sin perfil completo, redirigiendo al onboarding');
+          router.replace('/onboarding/welcome' as any);
+        }
       }
     }
-  }, [user, isLoading, requireAuth]);
+  }, [user, isLoading, requireAuth, currentRoute]);
 
   // Timeout de seguridad para evitar pantallas en negro indefinidas
   useEffect(() => {

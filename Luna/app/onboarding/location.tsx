@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert, ActivityIndicator } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import { useOnboarding } from '../../hooks/useOnboarding';
 
 const { width, height } = Dimensions.get('window');
 
 export default function LocationScreen() {
   const { displayName, birthDate, gender, profileImage } = useLocalSearchParams();
   const [locationPermission, setLocationPermission] = useState(false);
+  const { updateLocation, isLoading, error } = useOnboarding();
 
   const requestLocationPermission = async () => {
     try {
@@ -32,16 +34,27 @@ export default function LocationScreen() {
           address: address[0] ? `${address[0].city}, ${address[0].country}` : 'Ubicación no disponible'
         };
 
-        router.push({
-          pathname: '/onboarding/complete',
-          params: { 
-            displayName: displayName as string,
-            birthDate: birthDate as string,
-            gender: gender as string,
-            profileImage: profileImage as string,
-            location: JSON.stringify(locationData)
-          }
-        });
+        // Guardar la ubicación en DynamoDB
+        const success = await updateLocation(locationData);
+        
+        if (success) {
+          router.push({
+            pathname: '/onboarding/complete',
+            params: { 
+              displayName: displayName as string,
+              birthDate: birthDate as string,
+              gender: gender as string,
+              profileImage: profileImage as string,
+              location: JSON.stringify(locationData)
+            }
+          });
+        } else {
+          Alert.alert(
+            'Error',
+            'No se pudo guardar tu ubicación. Por favor, intenta de nuevo.',
+            [{ text: 'OK' }]
+          );
+        }
       } else {
         Alert.alert(
           'Permisos denegados',
@@ -123,14 +136,33 @@ export default function LocationScreen() {
 
         {/* Buttons */}
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.button} onPress={requestLocationPermission}>
-            <Text style={styles.buttonText}>Allow location</Text>
+          <TouchableOpacity 
+            style={[styles.button, isLoading && styles.buttonDisabled]} 
+            onPress={requestLocationPermission}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator color="#000000" size="small" />
+            ) : (
+              <Text style={styles.buttonText}>Allow location</Text>
+            )}
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.skipButton} onPress={handleSkip}>
+          <TouchableOpacity 
+            style={styles.skipButton} 
+            onPress={handleSkip}
+            disabled={isLoading}
+          >
             <Text style={styles.skipButtonText}>Skip for now</Text>
           </TouchableOpacity>
         </View>
+        
+        {/* Error Display */}
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
     </View>
   );
 }
@@ -216,5 +248,18 @@ const styles = StyleSheet.create({
     color: '#CCCCCC',
     fontSize: 16,
     fontWeight: '500',
+  },
+  buttonDisabled: {
+    backgroundColor: '#333333',
+  },
+  errorContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  errorText: {
+    color: '#FF6B6B',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });

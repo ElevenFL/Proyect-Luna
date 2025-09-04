@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import dotenv from 'dotenv';
 
@@ -10,6 +10,9 @@ const s3Client = new S3Client({
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
+  // Deshabilitar checksums automáticos para evitar conflictos con URLs presignadas
+  requestChecksumValidation: false,
+  checksumAlgorithm: undefined,
 });
 
 const BUCKET_NAME = process.env.AWS_S3_BUCKET || 'eleven-lunea-storage';
@@ -46,6 +49,8 @@ export const generateUploadUrl = async (req, res) => {
     // Generar URL firmada para subida (válida por 15 minutos)
     const uploadUrl = await getSignedUrl(s3Client, putObjectCommand, {
       expiresIn: 900, // 15 minutos
+      // Deshabilitar checksums en la URL presignada
+      signableHeaders: new Set(['host']),
     });
 
     res.json({
@@ -160,11 +165,11 @@ export const listImages = async (req, res) => {
     const { folder = 'profile-images' } = req.query;
     
     // Crear comando para listar objetos
-    const listObjectsCommand = {
+    const listObjectsCommand = new ListObjectsV2Command({
       Bucket: BUCKET_NAME,
       Prefix: `${folder}/`,
       MaxKeys: 100, // Limitar a 100 resultados
-    };
+    });
 
     const { Contents } = await s3Client.send(listObjectsCommand);
 
