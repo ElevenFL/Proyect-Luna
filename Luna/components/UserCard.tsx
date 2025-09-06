@@ -14,6 +14,8 @@ export interface User {
   isOnline: boolean;
   description: string;
   lastSeen?: string;
+  lastConnection?: string;
+  connectionPriority?: number; // Para ordenamiento: mayor = más reciente
 }
 
 interface UserCardProps {
@@ -51,6 +53,24 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress }) => {
       .join('')
       .toUpperCase()
       .slice(0, 2);
+  };
+
+  const getTimeAgo = (dateString: string) => {
+    const now = new Date();
+    const lastSeen = new Date(dateString);
+    const diffMs = now.getTime() - lastSeen.getTime();
+    
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffMinutes < 60) {
+      return diffMinutes <= 1 ? 'Hace 1 min' : `Hace ${diffMinutes} min`;
+    } else if (diffHours < 24) {
+      return diffHours === 1 ? 'Hace 1 hora' : `Hace ${diffHours} horas`;
+    } else {
+      return diffDays === 1 ? 'Hace 1 día' : `Hace ${diffDays} días`;
+    }
   };
 
   return (
@@ -104,8 +124,8 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress }) => {
 
         {/* Online Status */}
         <View style={styles.statusContainer}>
-          <Text style={styles.statusText}>
-            {user.isOnline ? 'Online' : 'Offline'}
+          <Text style={[styles.statusText, { color: user.isOnline ? '#4CAF50' : '#ADB5BD' }]}>
+            {user.isOnline ? 'Online' : (user.lastConnection ? getTimeAgo(user.lastConnection) : 'Offline')}
           </Text>
         </View>
       </View>
@@ -192,10 +212,11 @@ const styles = StyleSheet.create({
   },
   statusContainer: {
     alignItems: 'flex-end',
+    marginTop: -35,
   },
   statusText: {
     fontSize: 12,
-    color: '#FFFFFF',
+    color: '#ADB5BD',
     fontWeight: '500',
   },
 });

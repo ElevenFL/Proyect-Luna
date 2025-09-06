@@ -60,7 +60,8 @@ export const ENV_CONFIG = {
     },
     TIMEOUTS: {
       ...APP_CONFIG.TIMEOUTS,
-      SAFETY_TIMEOUT: 5000, // Timeout más corto en desarrollo
+      SAFETY_TIMEOUT: 10000, // Aumentar timeout en desarrollo
+      REDIRECT_DELAY: 500, // Reducir delay entre redirecciones
     },
   },
   production: {

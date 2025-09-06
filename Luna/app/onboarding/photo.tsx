@@ -63,7 +63,7 @@ export default function PhotoScreen() {
           displayName: displayName as string,
           birthDate: birthDate as string,
           gender: gender as string,
-          profileImage: imageUrl
+          profileImage: imageUrl || 'default' // Usar 'default' si no hay imagen
         }
       });
     } catch (error) {

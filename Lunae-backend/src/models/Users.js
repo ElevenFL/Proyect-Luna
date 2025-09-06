@@ -22,7 +22,12 @@ const tableClient = new DynamoDBClient({
 export class User {
   constructor(data = {}) {
     try {
-      this.id = data.id || this.generateId();
+      // Si se proporciona un amplifySub, usarlo como ID
+      if (data.amplifySub && !data.id) {
+        this.id = data.amplifySub;
+      } else {
+        this.id = data.id || this.generateId(data.amplifySub);
+      }
       this.username = data.username;
       this.email = data.email;
       this.password = data.password;
@@ -42,6 +47,11 @@ export class User {
       this.createdAt = data.createdAt || new Date().toISOString();
       this.updatedAt = data.updatedAt || new Date().toISOString();
       
+      // Campos de conexión
+      this.isOnline = data.isOnline || false;
+      this.lastConnection = data.lastConnection;
+      this.connectionPriority = data.connectionPriority;
+      
       // Estructura para tabla Lunea-chat (PK/SK)
       this.PK = `USER#${this.id}`;
       this.SK = `PROFILE#${this.id}`;
@@ -51,8 +61,13 @@ export class User {
     }
   }
 
-  generateId() {
+  generateId(amplifySub = null) {
     try {
+      // Si se proporciona un amplifySub, usarlo como ID
+      if (amplifySub) {
+        return amplifySub;
+      }
+      // Si no, generar un ID tradicional
       return `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     } catch (error) {
       console.error('❌ Error generando ID:', error);
@@ -450,6 +465,51 @@ export class User {
       return result.Items.map(item => User.fromDynamoDB(item));
     } catch (error) {
       console.error('❌ Error buscando usuarios:', error);
+      throw error;
+    }
+  }
+
+  // Obtener usuarios ordenados por estado de conexión
+  static async findUsersOrderedByConnection() {
+    try {
+      const users = await this.find();
+      
+      // Ordenar por estado de conexión: online primero, luego por última conexión
+      return users.sort((a, b) => {
+        // Primero, usuarios online
+        if (a.isOnline && !b.isOnline) return -1;
+        if (!a.isOnline && b.isOnline) return 1;
+        
+        // Si ambos están en el mismo estado, ordenar por connectionPriority o lastConnection
+        const aTime = a.connectionPriority || (a.lastConnection ? new Date(a.lastConnection).getTime() : 0);
+        const bTime = b.connectionPriority || (b.lastConnection ? new Date(b.lastConnection).getTime() : 0);
+        return bTime - aTime; // Más reciente primero
+      });
+    } catch (error) {
+      console.error('❌ Error obteniendo usuarios ordenados por conexión:', error);
+      throw error;
+    }
+  }
+
+  // Actualizar estado de conexión de un usuario
+  async updateConnectionStatus(isOnline, lastConnection = null) {
+    try {
+      const updates = {
+        isOnline,
+        connectionPriority: Date.now(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      if (lastConnection) {
+        updates.lastConnection = lastConnection;
+      } else if (!isOnline) {
+        updates.lastConnection = new Date().toISOString();
+      }
+      
+      await this.update(updates);
+      console.log(`✅ Estado de conexión actualizado para usuario ${this.id}: ${isOnline ? 'online' : 'offline'}`);
+    } catch (error) {
+      console.error('❌ Error actualizando estado de conexión:', error);
       throw error;
     }
   }

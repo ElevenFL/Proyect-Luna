@@ -19,11 +19,15 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const { login } = useAuth();
 
   const handleLogin = async () => {
+    // Limpiar mensaje de error anterior
+    setErrorMessage('');
+    
     if (!usernameOrEmail || !password) {
-      Alert.alert('Error', 'Por favor completa todos los campos');
+      setErrorMessage('Por favor completa todos los campos');
       return;
     }
 
@@ -33,6 +37,12 @@ export default function LoginScreen() {
 
     if (result.success) {
       // Verificar si el usuario necesita completar el onboarding
+      console.log('🔍 Login exitoso - Verificando estado del perfil:', {
+        hasUser: !!result.user,
+        profileCompleted: result.user?.profileCompleted,
+        userId: result.user?.id
+      });
+      
       if (result.user && !result.user.profileCompleted) {
         console.log('🔀 Usuario sin perfil completo, redirigiendo al onboarding');
         router.replace('/onboarding/welcome');
@@ -48,35 +58,29 @@ export default function LoginScreen() {
           params: { username: usernameOrEmail }
         });
       } else if (result.error === 'INVALID_CREDENTIALS') {
-        Alert.alert(
-          'Error de credenciales', 
-          result.message,
-          [
-            {
-              text: 'Ir a Verificar',
-              onPress: () => router.push({
-                pathname: '/(auth)/verify',
-                params: { username: usernameOrEmail }
-              })
-            },
-            {
-              text: 'Registrarse',
-              onPress: () => router.push('/(auth)/register')
-            },
-            {
-              text: 'Intentar de nuevo',
-              style: 'cancel'
-            }
-          ]
-        );
+        setErrorMessage(result.message);
       } else {
-        Alert.alert('Error', result.message);
+        setErrorMessage(result.message);
       }
     }
   };
 
   const goToRegister = () => {
     router.push('/(auth)/register');
+  };
+
+  const handleUsernameChange = (text: string) => {
+    setUsernameOrEmail(text);
+    if (errorMessage) {
+      setErrorMessage('');
+    }
+  };
+
+  const handlePasswordChange = (text: string) => {
+    setPassword(text);
+    if (errorMessage) {
+      setErrorMessage('');
+    }
   };
 
   return (
@@ -94,9 +98,9 @@ export default function LoginScreen() {
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Username o Email</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, errorMessage && styles.inputError]}
               value={usernameOrEmail}
-              onChangeText={setUsernameOrEmail}
+              onChangeText={handleUsernameChange}
               placeholder="Ingresa tu username o email"
               placeholderTextColor="#666"
               autoCapitalize="none"
@@ -107,11 +111,11 @@ export default function LoginScreen() {
           {/* Password Input */}
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Password</Text>
-            <View style={styles.passwordContainer}>
+            <View style={[styles.passwordContainer, errorMessage && styles.inputError]}>
               <TextInput
                 style={styles.passwordInput}
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={handlePasswordChange}
                 placeholder="Ingresa tu contraseña"
                 placeholderTextColor="#666"
                 secureTextEntry={!showPassword}
@@ -126,6 +130,13 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Error Message */}
+          {errorMessage ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{errorMessage}</Text>
+            </View>
+          ) : null}
 
           {/* Forgot Password */}
           <TouchableOpacity style={styles.forgotPassword}>
@@ -208,6 +219,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#fff',
   },
+  inputError: {
+    borderColor: '#FF4444',
+  },
   passwordContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -230,6 +244,21 @@ const styles = StyleSheet.create({
   eyeIcon: {
     fontSize: 20,
     color: '#FFD700',
+  },
+  errorContainer: {
+    marginBottom: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(255, 68, 68, 0.1)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FF4444',
+  },
+  errorText: {
+    color: '#FF4444',
+    fontSize: 14,
+    textAlign: 'center',
+    fontWeight: '500',
   },
   forgotPassword: {
     alignSelf: 'flex-end',

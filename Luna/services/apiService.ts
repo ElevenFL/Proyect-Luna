@@ -243,6 +243,38 @@ class ApiService {
   static async markProfileCompleted(): Promise<ApiResponse<any>> {
     return this.put('/profile', { profileCompleted: true });
   }
+
+  // ====== CHAT ======
+  static async getOrCreateConversationWith(otherUserId: string): Promise<ApiResponse<any>> {
+    return this.post(`/chat/conversations/with/${otherUserId}`, {});
+  }
+
+  static async listConversations(params: { limit?: number; nextKey?: any } = {}): Promise<ApiResponse<any>> {
+    return this.get('/chat/conversations', params as any);
+  }
+
+  static async listMessages(conversationId: string, params: { limit?: number; nextKey?: any } = {}): Promise<ApiResponse<any>> {
+    return this.get(`/chat/conversations/${conversationId}/messages`, params as any);
+  }
+
+  static async sendMessage(conversationId: string, payload: { content: string; receiverId: string; type?: 'text' | 'image' }): Promise<ApiResponse<any>> {
+    return this.post(`/chat/conversations/${conversationId}/messages`, payload as any);
+  }
+
+  // ====== USUARIOS ======
+  /**
+   * Obtiene usuarios ordenados por estado de conexión
+   */
+  static async getHomeUsers(): Promise<ApiResponse<any>> {
+    return this.get('/users/home');
+  }
+
+  /**
+   * Actualiza el estado de conexión del usuario actual
+   */
+  static async updateConnectionStatus(isOnline: boolean, lastConnection?: string): Promise<ApiResponse<any>> {
+    return this.put('/users/connection-status', { isOnline, lastConnection });
+  }
 }
 
 export default ApiService;

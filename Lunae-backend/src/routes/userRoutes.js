@@ -2,6 +2,7 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import { User } from "../models/Users.js";
 import { auth } from "../middleware/auth.js";
+import { getFlagFromAddress } from "../utils/countryFlags.js";
 
 const router = express.Router();
 
@@ -309,6 +310,25 @@ router.post("/sync-amplify", async (req, res) => {
       });
     }
 
+    // Validar formato de email
+    const emailRegex = /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Formato de email inválido",
+        error: "INVALID_EMAIL_FORMAT"
+      });
+    }
+
+    // Validar que el email no sea igual al username (caso problemático)
+    if (email === username) {
+      return res.status(400).json({
+        success: false,
+        message: "El email no puede ser igual al username",
+        error: "INVALID_EMAIL_USERNAME_MATCH"
+      });
+    }
+
     // Verificar si el usuario ya existe en DynamoDB
     console.log('🔍 Verificando si el usuario ya existe...');
     const existingUser = await User.findByEmail(email);
@@ -323,11 +343,13 @@ router.post("/sync-amplify", async (req, res) => {
       return res.status(200).json({
         success: true,
         message: "Usuario ya existe en la base de datos",
-        user: {
-          id: existingUser.id,
-          username: existingUser.username,
-          email: existingUser.email,
-          profileCompleted: existingUser.profileCompleted
+        data: {
+          user: {
+            id: existingUser.id,
+            username: existingUser.username,
+            email: existingUser.email,
+            profileCompleted: existingUser.profileCompleted
+          }
         }
       });
     }
@@ -349,11 +371,13 @@ router.post("/sync-amplify", async (req, res) => {
     res.status(201).json({
       success: true,
       message: "Usuario sincronizado exitosamente",
-      user: {
-        id: newUser.id,
-        username: newUser.username,
-        email: newUser.email,
-        profileCompleted: false
+      data: {
+        user: {
+          id: newUser.id,
+          username: newUser.username,
+          email: newUser.email,
+          profileCompleted: false
+        }
       }
     });
   } catch (error) {
@@ -495,6 +519,109 @@ router.get("/profile-status", auth, async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error obteniendo estado del perfil:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Error interno del servidor",
+      error: "SERVER_ERROR"
+    });
+  }
+});
+
+// GET usuarios ordenados por conexión (para el home)
+router.get("/home", auth, async (req, res) => {
+  try {
+    const currentUserId = req.user.id;
+    console.log('🏠 Obteniendo usuarios ordenados por conexión para el home...');
+    console.log('👤 Usuario actual (excluir de la lista):', currentUserId);
+    
+    const users = await User.findUsersOrderedByConnection();
+    
+    // Filtrar el usuario actual de la lista
+    const filteredUsers = users.filter(user => user.id !== currentUserId);
+    console.log(`🔍 Usuarios filtrados: ${users.length} -> ${filteredUsers.length} (excluido usuario actual)`);
+    
+    // Formatear datos para el frontend
+    const formattedUsers = filteredUsers.map(user => {
+      // Obtener la bandera basada en la ubicación del usuario
+      const countryFlag = getFlagFromAddress(user.location?.address);
+      
+      return {
+        id: user.id,
+        name: user.displayName || user.username,
+        age: user.birthDate ? Math.floor((Date.now() - new Date(user.birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : null,
+        gender: user.gender,
+        profileImage: user.profileImage,
+        country: user.location?.address || 'Unknown',
+        countryFlag: countryFlag,
+        isOnline: user.isOnline,
+        description: user.displayName ? `Usuario activo en Lunea` : 'Nuevo en Lunea',
+        lastConnection: user.lastConnection,
+        connectionPriority: user.connectionPriority
+      };
+    }).filter(user => user.age !== null); // Solo usuarios con edad válida
+    
+    console.log(`✅ Encontrados ${formattedUsers.length} usuarios para el home`);
+    
+    res.json({
+      success: true,
+      message: "Usuarios obtenidos exitosamente",
+      data: formattedUsers
+    });
+  } catch (error) {
+    console.error("❌ Error obteniendo usuarios para el home:", error);
+    
+    // Manejar errores específicos de DynamoDB
+    if (error.name === 'ResourceNotFoundException') {
+      console.log('💡 La tabla no existe. Se creará automáticamente.');
+      return res.status(500).json({
+        success: false,
+        message: "Error de configuración de la base de datos",
+        error: "DB_CONFIG_ERROR"
+      });
+    } else if (error.name === 'AccessDeniedException') {
+      console.log('💡 Error de permisos en DynamoDB.');
+      return res.status(500).json({
+        success: false,
+        message: "Error de permisos en la base de datos",
+        error: "DB_PERMISSION_ERROR"
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false,
+      message: "Error interno del servidor",
+      error: "SERVER_ERROR"
+    });
+  }
+});
+
+// PUT estado de conexión del usuario
+router.put("/connection-status", auth, async (req, res) => {
+  try {
+    const { isOnline, lastConnection } = req.body;
+    const userId = req.user.id;
+
+    console.log(`🔄 Actualizando estado de conexión para usuario ${userId}: ${isOnline ? 'online' : 'offline'}`);
+
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log('❌ Usuario no encontrado:', userId);
+      return res.status(404).json({ 
+        success: false,
+        message: 'Usuario no encontrado',
+        error: 'USER_NOT_FOUND'
+      });
+    }
+
+    await user.updateConnectionStatus(isOnline, lastConnection);
+    
+    res.json({
+      success: true,
+      message: "Estado de conexión actualizado exitosamente"
+    });
+  } catch (error) {
+    console.error("❌ Error actualizando estado de conexión:", error);
+    
     res.status(500).json({ 
       success: false,
       message: "Error interno del servidor",

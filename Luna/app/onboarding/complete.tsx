@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert } from 'rea
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOnboarding } from '@/hooks/useOnboarding';
+import ApiService from '@/services/apiService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -22,24 +23,55 @@ export default function CompleteScreen() {
     try {
       const locationData = location ? JSON.parse(location as string) : {};
       
-      // Actualizar el perfil usando el hook useOnboarding
-      const success = await markProfileCompleted();
+      // Log de depuración para ver qué datos están llegando
+      console.log('🔍 Datos recibidos en complete.tsx:');
+      console.log('displayName:', displayName);
+      console.log('birthDate:', birthDate);
+      console.log('gender:', gender);
+      console.log('profileImage:', profileImage);
+      console.log('location (raw):', location);
+      console.log('locationData (parsed):', locationData);
       
-      if (success) {
-        // Actualizar el contexto local con los nuevos datos
-        updateUserProfile({
-          displayName: displayName as string,
-          birthDate: birthDate as string,
-          gender: gender as string,
-          profileImage: profileImage as string,
-          location: locationData,
-          profileCompleted: true
-        });
+      // Verificar que todos los datos requeridos estén presentes
+      if (!displayName || !birthDate || !gender || !profileImage || profileImage === '') {
+        console.log('❌ Faltan datos básicos del perfil');
+        Alert.alert('Error', 'Faltan datos del perfil. Por favor, completa todos los pasos del onboarding.');
+        return;
+      }
+      
+      // Verificar que la ubicación tenga datos válidos (no solo un objeto vacío)
+      if (!locationData || (!locationData.latitude && !locationData.longitude && !locationData.address)) {
+        console.log('❌ Faltan datos de ubicación válidos');
+        Alert.alert('Error', 'Falta la información de ubicación. Por favor, completa el paso de ubicación.');
+        return;
+      }
+      
+      console.log('✅ Todos los datos están presentes, procediendo con la actualización');
+      
+      // Primero actualizar el contexto local con todos los datos
+      await updateUserProfile({
+        displayName: displayName as string,
+        birthDate: birthDate as string,
+        gender: gender as string,
+        profileImage: profileImage as string,
+        location: locationData,
+        profileCompleted: true
+      });
+      
+      // Configurar el token en ApiService
+      ApiService.setAuthToken(token);
+      
+      // Luego marcar el perfil como completado en el backend
+      const response = await ApiService.markProfileCompleted();
+      
+      if (response.success) {
+        // Pequeña pausa para asegurar que el contexto se actualice
+        await new Promise(resolve => setTimeout(resolve, 100));
         
         // Navegar a la pantalla principal
         router.replace('/(tabs)');
       } else {
-        Alert.alert('Error', 'Error al marcar el perfil como completo');
+        Alert.alert('Error', response.message || 'Error al marcar el perfil como completo');
       }
     } catch (error) {
       console.error('Error actualizando perfil:', error);

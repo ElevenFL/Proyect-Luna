@@ -32,9 +32,19 @@ const verifyAmplifyToken = async (token) => {
       // Si el usuario no existe, crearlo automáticamente
       console.log('🔄 Usuario de Amplify no encontrado, creándolo automáticamente...');
       
+      // Validar que tenemos un email válido
+      let email = decoded.email;
+      
+      // Si no hay email o el email es igual al username (caso problemático), 
+      // no crear el usuario automáticamente
+      if (!email || email === decoded.username || !email.includes('@')) {
+        console.log('❌ No se puede crear usuario automáticamente: email inválido o faltante');
+        throw new Error('Usuario de Amplify no encontrado y no se puede crear automáticamente sin email válido');
+      }
+      
       const newUser = await User.create({
         username: decoded.username,
-        email: decoded.email || `${decoded.username}@temp.com`,
+        email: email,
         amplifySub: decoded.sub,
         active: true,
         profileCompleted: false,
@@ -126,6 +136,15 @@ export const auth = async (req, res, next) => {
 
     // Excluir contraseña del usuario
     req.user = user.select('-password');
+    
+    // Debug: Log para verificar la estructura del usuario autenticado (comentado para producción)
+    // console.log('🔍 Auth Middleware Debug:', {
+    //   'user.id': user?.id,
+    //   'user.userId': user?.userId,
+    //   'req.user.id': req.user?.id,
+    //   'req.user.userId': req.user?.userId
+    // });
+    
     next();
   } catch (error) {
     console.error('❌ Error en middleware de autenticación:', error);

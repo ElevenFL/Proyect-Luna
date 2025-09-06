@@ -22,62 +22,103 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
   const config = getAppConfig();
   const currentRoute = usePathname();
 
-  // Efecto para manejar la redirección cuando el usuario se desautentica
+  // Efecto unificado para manejar todas las redirecciones
   useEffect(() => {
-    if (!isLoading && requireAuth && !user && !isRedirecting) {
-      console.log('AuthGuard: Usuario no autenticado, redirigiendo a:', redirectTo);
-      setIsRedirecting(true);
-      
-      // Intentar redirección con timeout de seguridad
-      const redirectTimer = setTimeout(() => {
-        if (redirectAttempts < config.TIMEOUTS.REDIRECT_ATTEMPTS) {
-          console.log('AuthGuard: Reintentando redirección...');
-          setRedirectAttempts(prev => prev + 1);
-          router.replace(redirectTo);
+    if (isLoading || isRedirecting) return;
+
+    console.log('AuthGuard: Evaluando redirección...', { 
+      user: !!user, 
+      requireAuth, 
+      currentRoute,
+      profileCompleted: user?.profileCompleted,
+      userId: user?.id
+    });
+
+    const timer = setTimeout(() => {
+      // Caso 1: Requiere autenticación pero no hay usuario
+      if (requireAuth && !user) {
+        console.log('AuthGuard: Usuario no autenticado, redirigiendo a:', redirectTo);
+        setIsRedirecting(true);
+        router.replace(redirectTo);
+        return;
+      }
+
+      // Caso 2: No requiere autenticación pero hay usuario
+      if (!requireAuth && user) {
+        console.log('AuthGuard: Usuario autenticado en página pública, redirigiendo...');
+        setIsRedirecting(true);
+        if (user.profileCompleted) {
+          router.replace('/(tabs)');
         } else {
-          console.log('AuthGuard: Múltiples intentos de redirección fallidos, mostrando mensaje de error');
+          router.replace('/onboarding/welcome');
+        }
+        return;
+      }
+
+      // Caso 3: Usuario autenticado pero en rutas incorrectas
+      if (user && requireAuth) {
+        const isInTabs = currentRoute.includes('/(tabs)');
+        const isInOnboarding = currentRoute.includes('/onboarding');
+        const isInAuth = currentRoute.includes('/(auth)');
+
+        if (!user.profileCompleted && isInTabs) {
+          console.log('AuthGuard: Usuario sin perfil completo, redirigiendo al onboarding');
+          console.log('AuthGuard: profileCompleted =', user.profileCompleted);
+          setIsRedirecting(true);
+          router.replace('/onboarding/welcome');
+          return;
+        }
+
+        if (user.profileCompleted && isInOnboarding) {
+          console.log('AuthGuard: Usuario con perfil completo, redirigiendo a las tabs');
+          setIsRedirecting(true);
+          router.replace('/(tabs)');
+          return;
+        }
+
+        // Caso especial: Si estamos en /onboarding/complete y el perfil está completo, permitir continuar
+        if (currentRoute === '/onboarding/complete' && user.profileCompleted) {
+          console.log('AuthGuard: En pantalla de completado con perfil completo, permitiendo continuar');
+          return;
+        }
+
+        if (isInAuth) {
+          console.log('AuthGuard: Usuario autenticado en páginas de auth, redirigiendo...');
+          setIsRedirecting(true);
+          if (user.profileCompleted) {
+            router.replace('/(tabs)');
+          } else {
+            router.replace('/onboarding/welcome');
+          }
+          return;
+        }
+      }
+
+      // Si llegamos aquí, resetear el estado de redirección
+      setIsRedirecting(false);
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [user, isLoading, requireAuth, redirectTo, currentRoute]);
+
+  // Efecto para manejar reintentos de redirección fallidos
+  useEffect(() => {
+    if (isRedirecting && !isLoading) {
+      const failsafeTimer = setTimeout(() => {
+        if (redirectAttempts < config.TIMEOUTS.REDIRECT_ATTEMPTS) {
+          console.log('AuthGuard: Reintentando redirección fallida...');
+          setRedirectAttempts(prev => prev + 1);
+          setIsRedirecting(false); // Permitir nuevo intento
+        } else {
+          console.log('AuthGuard: Múltiples intentos fallidos, mostrando error');
           setShowTimeoutMessage(true);
           setIsRedirecting(false);
         }
-      }, config.TIMEOUTS.REDIRECT_DELAY);
+      }, config.TIMEOUTS.REDIRECT_DELAY * 2);
 
-      return () => clearTimeout(redirectTimer);
+      return () => clearTimeout(failsafeTimer);
     }
-  }, [user, isLoading, requireAuth, redirectTo, redirectAttempts, config, isRedirecting]);
-
-  // Efecto para verificar si el usuario necesita completar el perfil
-  useEffect(() => {
-    if (!isLoading && user && requireAuth && !isRedirecting) {
-      // Si el usuario está en las tabs pero no tiene el perfil completado, redirigir al onboarding
-      if (!user.profileCompleted && currentRoute.includes('/(tabs)')) {
-        console.log('AuthGuard: Usuario sin perfil completo, redirigiendo al onboarding');
-        setIsRedirecting(true);
-        router.replace('/onboarding/welcome' as any);
-        return;
-      }
-      
-      // Si el usuario está en el onboarding pero ya tiene el perfil completo, redirigir a las tabs
-      if (user.profileCompleted && currentRoute.includes('/onboarding')) {
-        console.log('AuthGuard: Usuario con perfil completo, redirigiendo a las tabs');
-        setIsRedirecting(true);
-        router.replace('/(tabs)' as any);
-        return;
-      }
-      
-      // Si el usuario está en la página de login pero ya está autenticado, redirigir según el estado del perfil
-      if (currentRoute.includes('/(auth)/login') && user) {
-        setIsRedirecting(true);
-        if (user.profileCompleted) {
-          console.log('AuthGuard: Usuario autenticado con perfil completo, redirigiendo a las tabs');
-          router.replace('/(tabs)' as any);
-        } else {
-          console.log('AuthGuard: Usuario autenticado sin perfil completo, redirigiendo al onboarding');
-          router.replace('/onboarding/welcome' as any);
-        }
-        return;
-      }
-    }
-  }, [user, isLoading, requireAuth, currentRoute, isRedirecting]);
+  }, [isRedirecting, isLoading, redirectAttempts, config]);
 
   // Timeout de seguridad para evitar pantallas en negro indefinidas
   useEffect(() => {
@@ -140,17 +181,6 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
 
   // Si no requiere autenticación y hay usuario, redirigir a la app principal
   if (!requireAuth && user) {
-    React.useEffect(() => {
-      const timer = setTimeout(() => {
-        if (user.profileCompleted) {
-          router.replace('/(tabs)');
-        } else {
-          router.replace('/onboarding/welcome');
-        }
-      }, 100);
-      return () => clearTimeout(timer);
-    }, [user]);
-    
     return (
       <View style={styles.container}>
         <Text style={styles.loadingText}>

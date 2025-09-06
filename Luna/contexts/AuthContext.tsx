@@ -5,6 +5,7 @@ import { Auth } from '../config/amplify';
 import { ImageService } from '../services/imageService';
 import { API_CONFIG } from '../config/api';
 import ApiService from '../services/apiService';
+import chatService from '../services/chatService';
 import { smartLog } from '../config/logging';
 
 interface User {
@@ -25,6 +26,7 @@ interface User {
   lastLogin?: string;
   loginAttempts?: number;
   lockUntil?: string;
+  amplifySub?: string; // Agregar amplifySub para compatibilidad
 }
 
 interface LoginResponse {
@@ -264,10 +266,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           id: currentUser.userId,
           username: currentUser.username,
           email: currentUser.signInDetails?.loginId || '',
-          profileCompleted: false,
+          profileCompleted: false, // Por defecto false, se actualizará con el valor real de DynamoDB
           active: true,
           lastLogin: new Date().toISOString(),
-          loginAttempts: 0
+          loginAttempts: 0,
+          amplifySub: currentUser.userId // Guardar el amplifySub original
         };
         
         const accessToken = session.tokens?.accessToken?.toString();
@@ -281,20 +284,32 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             ApiService.setAuthToken(accessToken);
           }
           
-          const syncResponse = await ApiService.post('/users/sync-amplify', {
-            username: currentUser.username,
-            email: currentUser.signInDetails?.loginId || '',
-            sub: currentUser.userId
-          });
+          // Validar que tenemos un email válido antes de sincronizar
+          const email = currentUser.signInDetails?.loginId || '';
+          const emailRegex = /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/;
           
-          if (syncResponse.success && syncResponse.data) {
-            console.log('✅ Usuario sincronizado exitosamente después del login');
-            // Actualizar userData con la información de DynamoDB
-            userData.id = syncResponse.data.user.id;
-            userData.profileCompleted = syncResponse.data.user.profileCompleted;
+          if (!email || !emailRegex.test(email) || email === currentUser.username) {
+            console.log('⚠️ No se puede sincronizar: email inválido o faltante');
+            console.log('📧 Email recibido:', email);
+            console.log('👤 Username:', currentUser.username);
+            // Continuar sin sincronización si no hay email válido
           } else {
-            console.log('⚠️ Error sincronizando usuario después del login:', syncResponse.message);
-            // Continuar con el flujo aunque haya error de sincronización
+            const syncResponse = await ApiService.post('/users/sync-amplify', {
+              username: currentUser.username,
+              email: email,
+              sub: currentUser.userId
+            });
+            
+            if (syncResponse.success && syncResponse.data) {
+              console.log('✅ Usuario sincronizado exitosamente después del login');
+              // Actualizar userData con la información de DynamoDB
+              userData.id = syncResponse.data.user.id;
+              userData.profileCompleted = syncResponse.data.user.profileCompleted;
+              // Mantener el amplifySub original
+              userData.amplifySub = currentUser.userId;
+            } else {
+              console.log('⚠️ Error en sincronización, continuando con datos de Amplify');
+            }
           }
         } catch (syncError) {
           console.error('❌ Error en sincronización después del login:', syncError);
@@ -316,7 +331,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
           
           // Continuar con el flujo aunque haya error de sincronización
+          // Mantener profileCompleted como false para forzar onboarding si es necesario
           console.log('⚠️ Continuando con el login sin sincronización...');
+          console.log('🔧 Manteniendo profileCompleted como false debido a error de sincronización');
         }
         
         setUser(userData);
@@ -325,6 +342,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Sincronizar token con ImageService
         if (accessToken) {
           ImageService.setAuthToken(accessToken);
+        }
+        
+        // Inicializar servicios de chat con sincronización en segundo plano
+        try {
+          await chatService.initializeChat(userData.id);
+          smartLog.info('AuthContext: Servicios de chat inicializados con sincronización en segundo plano');
+        } catch (chatError) {
+          smartLog.error('AuthContext: Error inicializando servicios de chat:', chatError);
         }
         
         await AsyncStorage.setItem('userData', JSON.stringify(userData));
@@ -381,31 +406,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         
         // Manejar errores de Amplify
         if (error.message.includes('Incorrect username or password') || error.message.includes('NotAuthorizedException')) {
-          // Verificar si el usuario existe (pero no está confirmado)
-          const userExists = await checkUserExists(usernameOrEmail);
-          
-          if (userExists) {
-            // Usuario existe pero no está confirmado
-            await AsyncStorage.setItem('pendingUsername', usernameOrEmail);
-            
-            return {
-              success: false,
-              message: 'Usuario no confirmado. Se ha reenviado el código de verificación a tu email.',
-              error: 'USER_NOT_CONFIRMED'
-            };
-          } else {
-            // Usuario no existe o credenciales incorrectas
-            return {
-              success: false,
-              message: 'Usuario o contraseña incorrectos. Verifica tus credenciales.',
-              error: 'INVALID_CREDENTIALS'
-            };
-          }
+          // Para errores de credenciales incorrectas, siempre devolver INVALID_CREDENTIALS
+          // No intentar verificar si el usuario existe, ya que puede causar redirecciones incorrectas al verify
+          smartLog.info('AuthContext: Credenciales incorrectas detectadas, devolviendo INVALID_CREDENTIALS');
+          return {
+            success: false,
+            message: 'Usuario o contraseña incorrectos. Verifica tus credenciales.',
+            error: 'INVALID_CREDENTIALS'
+          };
         }
         
         if (error.message.includes('User is not confirmed') || error.message.includes('UserNotConfirmedException')) {
           // Guardar el username para reenviar el código
           await AsyncStorage.setItem('pendingUsername', usernameOrEmail);
+          
+          smartLog.info('AuthContext: Usuario no confirmado detectado, redirigiendo al verify');
           
           // Intentar reenviar el código automáticamente
           try {
@@ -594,6 +609,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // 3. Limpiar token de ImageService
       ImageService.setAuthToken('');
       smartLog.info('AuthContext: Token de ImageService limpiado');
+      
+      // 4. Desconectar servicios de chat
+      try {
+        chatService.disconnectChat();
+        smartLog.info('AuthContext: Servicios de chat desconectados');
+      } catch (chatError) {
+        smartLog.error('AuthContext: Error desconectando servicios de chat:', chatError);
+      }
       
       // 4. Limpiar todos los datos almacenados localmente
       await AsyncStorage.multiRemove([
@@ -852,11 +875,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const updateUserProfile = (userData: Partial<User>) => {
+  const updateUserProfile = async (userData: Partial<User>) => {
     if (user) {
       const updatedUser = { ...user, ...userData };
       setUser(updatedUser);
-      AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+      
+      // Actualizar AsyncStorage de forma asíncrona
+      try {
+        await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+        smartLog.info('AuthContext: Perfil actualizado en AsyncStorage');
+      } catch (error) {
+        smartLog.error('AuthContext: Error actualizando AsyncStorage:', error);
+      }
     }
   };
 

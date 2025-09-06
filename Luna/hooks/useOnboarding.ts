@@ -54,10 +54,10 @@ export const useOnboarding = () => {
       const response = await ApiService.updateProfile(updateData);
 
       if (response.success) {
-        smartLog.info(`✅ Campo ${field} actualizado exitosamente`);
+        smartLog.info(`✅ Campo '${field}' actualizado exitosamente`);
         
         // Actualizar estado local del usuario
-        updateUserProfile(updateData);
+        await updateUserProfile(updateData);
         
         // Marcar el paso como completado
         markStepCompleted(field);
@@ -66,7 +66,7 @@ export const useOnboarding = () => {
       } else {
         const errorMsg = response.message || `Error actualizando ${field}`;
         setError(errorMsg);
-        smartLog.error(`❌ Error actualizando ${field}:`, errorMsg);
+        smartLog.error(`❌ Error actualizando campo '${field}':`, errorMsg);
         return false;
       }
     } catch (err) {
@@ -81,7 +81,7 @@ export const useOnboarding = () => {
         // Por ahora, solo mostramos el error
       } else {
         setError(`Error actualizando ${field}: ${errorMessage}`);
-        smartLog.error(`❌ Error en updateProfileField para ${field}:`, err);
+        smartLog.error(`❌ Error en updateProfileField para campo '${field}':`, err);
       }
       
       return false;
@@ -173,8 +173,16 @@ export const useOnboarding = () => {
       if (response.success) {
         smartLog.info('✅ Perfil marcado como completado exitosamente');
         
-        // Actualizar estado local del usuario
-        updateUserProfile({ profileCompleted: true });
+        // Actualizar estado local del usuario con todos los datos del perfil
+        await updateUserProfile({ 
+          profileCompleted: true,
+          // Asegurar que todos los campos estén actualizados
+          ...(user?.displayName && { displayName: user.displayName }),
+          ...(user?.birthDate && { birthDate: user.birthDate }),
+          ...(user?.gender && { gender: user.gender }),
+          ...(user?.location && { location: user.location }),
+          ...(user?.profileImage && { profileImage: user.profileImage })
+        });
         
         // Marcar el paso final como completado
         markStepCompleted('complete');
