@@ -59,6 +59,16 @@ class ChatService {
    */
   async getOrCreateConversation(otherUserId: string) {
     try {
+      // Verificar si ya tenemos esta conversación en caché
+      const existingConversations = await this.getConversations();
+      const existingConv = existingConversations?.items?.find((conv: any) => 
+        conv.participants?.includes(otherUserId)
+      );
+      
+      if (existingConv) {
+        return existingConv;
+      }
+      
       const response = await ApiService.getOrCreateConversationWith(otherUserId);
       const conversation = response.data;
       
@@ -161,10 +171,31 @@ class ChatService {
    */
   async getConversations(options: { limit?: number; nextKey?: any } = {}) {
     try {
+      // Solo loggear en desarrollo o si hay errores
+      if (__DEV__) {
+        console.log('🔄 ChatService: Obteniendo conversaciones con opciones:', options);
+      }
+      
       const response = await ApiService.listConversations(options);
+      
+      if (!response.success) {
+        console.error('❌ ChatService: Error en la respuesta del backend:', response.error);
+        throw new Error(response.error || 'Error obteniendo conversaciones');
+      }
+      
+      // Solo loggear respuesta detallada en desarrollo
+      if (__DEV__) {
+        console.log('📡 ChatService: Respuesta de ApiService:', {
+          success: response.success,
+          data: response.data,
+          message: response.message,
+          error: response.error
+        });
+      }
+      
       return response.data;
     } catch (error) {
-      console.error('Error obteniendo conversaciones:', error);
+      console.error('❌ ChatService: Error obteniendo conversaciones:', error);
       throw error;
     }
   }
@@ -414,6 +445,293 @@ class ChatService {
    */
   async clearAllConversationStates() {
     return conversationStateService.clearAllStates();
+  }
+
+  /**
+   * Registra el acceso a una conversación para mejorar la precarga
+   */
+  async recordConversationAccess(conversationId: string) {
+    return cacheService.recordConversationAccess(conversationId);
+  }
+
+  /**
+   * Obtiene conversaciones ordenadas por prioridad para precarga
+   */
+  async getConversationsByPriority() {
+    return cacheService.getConversationsByPriority();
+  }
+
+  /**
+   * Obtiene conversaciones de alta prioridad para precarga inmediata
+   */
+  async getHighPriorityConversations() {
+    return cacheService.getHighPriorityConversations();
+  }
+
+  /**
+   * Precarga conversaciones basada en prioridad de uso
+   */
+  async preloadHighPriorityConversations() {
+    try {
+      const highPriorityConversations = await this.getHighPriorityConversations();
+      
+      if (highPriorityConversations.length === 0) {
+        return;
+      }
+      
+      // Limitar a máximo 3 conversaciones para evitar sobrecarga
+      const limitedConversations = highPriorityConversations.slice(0, 3);
+      
+      // Solo loggear en desarrollo
+      if (__DEV__) {
+        console.log('🚀 Precargando', limitedConversations.length, 'conversaciones recientes');
+      }
+      
+      // Precargar mensajes de conversaciones de alta prioridad
+      const preloadPromises = limitedConversations.map(async (conversationId) => {
+        try {
+          const isLoaded = await this.isConversationLoaded(conversationId);
+          if (!isLoaded) {
+            // Usar caché primero, luego sincronizar si es necesario
+            const cachedMessages = await this.getCachedMessages(conversationId);
+            if (cachedMessages.length === 0) {
+              await this.getMessages(conversationId, { limit: 15 }); // Reducido de 20 a 15
+            }
+          }
+        } catch (error) {
+          console.error(`❌ Error precargando conversación de alta prioridad ${conversationId}:`, error);
+        }
+      });
+      
+      await Promise.allSettled(preloadPromises);
+      
+    } catch (error) {
+      console.error('❌ Error en precarga de conversaciones de alta prioridad:', error);
+    }
+  }
+
+  /**
+   * Sincroniza incrementalmente una conversación (solo mensajes nuevos)
+   */
+  async syncConversationIncremental(conversationId: string): Promise<{
+    newMessagesCount: number;
+    updatedMessages: ChatMessage[];
+  }> {
+    try {
+      // Verificar si necesita sincronización
+      const needsSync = await this.needsSync(conversationId);
+      
+      if (!needsSync) {
+        return { newMessagesCount: 0, updatedMessages: [] };
+      }
+
+      // Obtener mensajes del servidor
+      const serverResult = await ApiService.listMessages(conversationId, { limit: 50 });
+      const serverMessages = serverResult.data?.items || [];
+      
+      // Sincronizar incrementalmente usando el servicio de caché
+      const syncResult = await cacheService.syncConversationIncremental(conversationId, serverMessages);
+      
+      // Marcar como cargada si hay mensajes nuevos
+      if (syncResult.newMessagesCount > 0) {
+        await this.markConversationAsLoaded(conversationId);
+      }
+      
+      return syncResult;
+    } catch (error) {
+      console.error(`❌ Error sincronizando incrementalmente conversación ${conversationId}:`, error);
+      return { newMessagesCount: 0, updatedMessages: [] };
+    }
+  }
+
+  /**
+   * Precarga los call renders de los mensajes para mejorar el rendimiento
+   * Esto pre-renderiza los componentes de mensajes antes de que el usuario entre al chat
+   */
+  async preloadMessageRenders(conversationId: string, messages: ChatMessage[]): Promise<void> {
+    try {
+      if (!messages || messages.length === 0) {
+        return;
+      }
+
+      console.log(`🎨 Iniciando precarga de renders para ${messages.length} mensajes de conversación ${conversationId}`);
+
+      // Crear un caché de renders para esta conversación
+      const renderCache = new Map<string, any>();
+      
+      console.log(`📋 Mensajes a procesar:`, messages.map(m => ({ id: m.messageId, content: m.content?.substring(0, 30) + '...' })));
+      
+      // Procesar mensajes en lotes para evitar sobrecarga
+      const batchSize = 5;
+      const batches = [];
+      
+      for (let i = 0; i < messages.length; i += batchSize) {
+        batches.push(messages.slice(i, i + batchSize));
+      }
+
+      // Procesar cada lote de mensajes
+      for (const batch of batches) {
+        const batchPromises = batch.map(async (message) => {
+          try {
+            console.log(`🔄 Procesando render para mensaje ${message.messageId}...`);
+            
+            // Crear un objeto de render pre-calculado
+            const renderData = {
+              messageId: message.messageId,
+              content: message.content,
+              type: message.type,
+              senderId: message.senderId,
+              receiverId: message.receiverId,
+              createdAt: message.createdAt,
+              conversationId: message.conversationId,
+              // Pre-calcular propiedades que se usan en el render
+              isReply: message.content.startsWith('↳'),
+              hasContent: message.content && message.content.trim().length > 0,
+              contentLength: message.content?.length || 0,
+              // Pre-calcular timestamp formateado
+              formattedTime: this.formatMessageTime(message.createdAt),
+              // Pre-calcular si es una respuesta
+              replyData: this.parseReplyMessage(message.content)
+            };
+
+            // Almacenar en caché de renders
+            renderCache.set(message.messageId, renderData);
+            console.log(`✅ Render calculado para mensaje ${message.messageId}:`, {
+              isReply: renderData.isReply,
+              hasContent: renderData.hasContent,
+              formattedTime: renderData.formattedTime
+            });
+            
+            // También almacenar en el caché del servicio de caché para persistencia
+            await cacheService.cacheMessageRender(conversationId, message.messageId, renderData);
+            console.log(`💾 Render almacenado en caché para mensaje ${message.messageId}`);
+            
+          } catch (error) {
+            console.error(`❌ Error precargando render para mensaje ${message.messageId}:`, error);
+          }
+        });
+
+        // Esperar a que termine el lote actual
+        await Promise.allSettled(batchPromises);
+        
+        // Pequeña pausa entre lotes para no bloquear la UI
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+
+      // Almacenar el caché de renders en memoria para acceso rápido
+      await cacheService.setRenderCache(conversationId, renderCache);
+      
+      console.log(`✅ Precarga de renders completada para conversación ${conversationId}: ${renderCache.size} renders cacheados`);
+      
+    } catch (error) {
+      console.error(`❌ Error en precarga de renders para conversación ${conversationId}:`, error);
+    }
+  }
+
+  /**
+   * Formatea el tiempo de un mensaje para mostrar en la UI
+   */
+  private formatMessageTime(createdAt: string): string {
+    try {
+      const now = new Date();
+      const messageTime = new Date(createdAt);
+      const diffMs = now.getTime() - messageTime.getTime();
+      
+      const diffMinutes = Math.floor(diffMs / (1000 * 60));
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      
+      if (diffMinutes < 1) {
+        return 'Ahora';
+      } else if (diffMinutes < 60) {
+        return `Hace ${diffMinutes} min`;
+      } else if (diffHours < 24) {
+        return `Hace ${diffHours}h`;
+      } else if (diffDays < 7) {
+        return `Hace ${diffDays}d`;
+      } else {
+        return messageTime.toLocaleDateString('es-ES', { 
+          day: '2-digit', 
+          month: '2-digit' 
+        });
+      }
+    } catch (error) {
+      return 'Hace un momento';
+    }
+  }
+
+  /**
+   * Parsea un mensaje de respuesta para extraer el mensaje original y la respuesta
+   */
+  private parseReplyMessage(content: string): { originalMessage: string; replyText: string; isReply: boolean } {
+    if (!content.startsWith('↳')) {
+      return { originalMessage: '', replyText: content, isReply: false };
+    }
+    
+    const parts = content.split('\n\n');
+    if (parts.length >= 2) {
+      const originalMessage = parts[0].replace('↳ ', '');
+      const replyText = parts.slice(1).join('\n\n');
+      return { originalMessage, replyText, isReply: true };
+    }
+    
+    return { originalMessage: '', replyText: content, isReply: false };
+  }
+
+  /**
+   * Obtiene un render pre-calculado de un mensaje desde el caché
+   */
+  async getCachedMessageRender(conversationId: string, messageId: string): Promise<any | null> {
+    try {
+      return await cacheService.getCachedMessageRender(conversationId, messageId);
+    } catch (error) {
+      console.error(`❌ Error obteniendo render cacheados para mensaje ${messageId}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Obtiene todos los renders cacheados de una conversación
+   */
+  async getCachedMessageRenders(conversationId: string): Promise<Map<string, any>> {
+    try {
+      return await cacheService.getRenderCache(conversationId);
+    } catch (error) {
+      console.error(`❌ Error obteniendo renders cacheados para conversación ${conversationId}:`, error);
+      return new Map();
+    }
+  }
+
+  /**
+   * Obtiene mensajes prerenderizados de una conversación
+   */
+  async getPrerenderedMessages(conversationId: string): Promise<ChatMessage[]> {
+    try {
+      // Intentar obtener mensajes prerenderizados desde el caché
+      const prerenderedMessages = await cacheService.getPrerenderedMessages(conversationId);
+      
+      if (prerenderedMessages && prerenderedMessages.length > 0) {
+        console.log(`🎭 ChatService: Obtenidos ${prerenderedMessages.length} mensajes prerenderizados para conversación ${conversationId}`);
+        return prerenderedMessages;
+      }
+      
+      return [];
+    } catch (error) {
+      console.error(`❌ Error obteniendo mensajes prerenderizados para conversación ${conversationId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Almacena mensajes prerenderizados para una conversación
+   */
+  async setPrerenderedMessages(conversationId: string, messages: ChatMessage[]): Promise<void> {
+    try {
+      await cacheService.setPrerenderedMessages(conversationId, messages);
+      console.log(`🎭 ChatService: Almacenados ${messages.length} mensajes prerenderizados para conversación ${conversationId}`);
+    } catch (error) {
+      console.error(`❌ Error almacenando mensajes prerenderizados para conversación ${conversationId}:`, error);
+    }
   }
 }
 

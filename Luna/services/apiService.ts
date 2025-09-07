@@ -17,6 +17,8 @@ interface ApiResponse<T = any> {
 class ApiService {
   private static token: string = '';
   private static retryCount: number = 0;
+  private static requestCache: Map<string, { data: any; timestamp: number }> = new Map();
+  private static readonly CACHE_DURATION = 5000; // 5 segundos de caché para evitar llamadas redundantes
 
   /**
    * Establece el token de autenticación
@@ -26,12 +28,46 @@ class ApiService {
   }
 
   /**
+   * Obtiene el token de autenticación actual
+   */
+  static getAuthToken(): string {
+    return this.token;
+  }
+
+  /**
+   * Limpia el caché de peticiones expiradas
+   */
+  private static cleanExpiredCache(): void {
+    const now = Date.now();
+    for (const [key, value] of this.requestCache.entries()) {
+      if (now - value.timestamp > this.CACHE_DURATION) {
+        this.requestCache.delete(key);
+      }
+    }
+  }
+
+  /**
    * Realiza una petición a la API con reintentos y manejo de errores
    */
   private static async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    useCache: boolean = true
   ): Promise<ApiResponse<T>> {
+    // Limpiar caché expirado periódicamente
+    if (Math.random() < 0.1) { // 10% de probabilidad de limpiar
+      this.cleanExpiredCache();
+    }
+
+    // Verificar caché para peticiones GET
+    if (useCache && (!options.method || options.method === 'GET')) {
+      const cacheKey = `${endpoint}_${JSON.stringify(options.body || {})}`;
+      const cached = this.requestCache.get(cacheKey);
+      
+      if (cached && (Date.now() - cached.timestamp) < this.CACHE_DURATION) {
+        return cached.data;
+      }
+    }
     const url = `${API_CONFIG.BASE_URL}${endpoint}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -40,6 +76,8 @@ class ApiService {
 
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
+    } else {
+      console.warn('⚠️ ApiService: No hay token disponible para la petición a', endpoint);
     }
 
     const config: RequestInit = {
@@ -59,11 +97,22 @@ class ApiService {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
+        console.error('❌ ApiService: Error en la respuesta:', {
+          status: response.status,
+          statusText: response.statusText,
+          data: data
+        });
         const error = new Error(data.message || 'Error en la petición') as ApiError;
         error.code = data.error || 'UNKNOWN_ERROR';
         error.status = response.status;
         error.details = data.details;
         throw error;
+      }
+
+      // Guardar en caché si es una petición GET exitosa
+      if (useCache && (!options.method || options.method === 'GET') && response.ok) {
+        const cacheKey = `${endpoint}_${JSON.stringify(options.body || {})}`;
+        this.requestCache.set(cacheKey, { data, timestamp: Date.now() });
       }
 
       return data;
@@ -250,7 +299,25 @@ class ApiService {
   }
 
   static async listConversations(params: { limit?: number; nextKey?: any } = {}): Promise<ApiResponse<any>> {
-    return this.get('/chat/conversations', params as any);
+    // Solo loggear en desarrollo para evitar spam en producción
+    if (__DEV__) {
+      console.log('🌐 ApiService: Llamando a /chat/conversations con params:', params);
+    }
+    
+    const result = await this.get('/chat/conversations', params as any);
+    
+    // Solo loggear respuesta en desarrollo o si hay errores
+    if (__DEV__ || !result.success) {
+      console.log('🌐 ApiService: Respuesta de /chat/conversations:', {
+        success: result.success,
+        dataKeys: result.data ? Object.keys(result.data) : 'no data',
+        itemsCount: result.data?.items?.length || 0,
+        message: result.message,
+        error: result.error
+      });
+    }
+    
+    return result;
   }
 
   static async listMessages(conversationId: string, params: { limit?: number; nextKey?: any } = {}): Promise<ApiResponse<any>> {

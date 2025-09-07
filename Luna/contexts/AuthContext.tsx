@@ -155,13 +155,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const loadStoredAuth = async () => {
     try {
+      console.log('🔄 AuthContext: Iniciando carga de autenticación almacenada...');
+      
       // Primero intentar cargar datos guardados localmente
       const storedToken = await AsyncStorage.getItem('authToken');
       const storedUser = await AsyncStorage.getItem('userData');
       const storedAuthType = await AsyncStorage.getItem('authType');
       
+      console.log('🔄 AuthContext: Datos almacenados:', {
+        hasToken: !!storedToken,
+        hasUser: !!storedUser,
+        hasAuthType: !!storedAuthType,
+        authType: storedAuthType
+      });
+      
       // Si hay datos locales, intentar validarlos
       if (storedToken && storedUser && storedAuthType) {
+        console.log('🔄 AuthContext: Datos encontrados, validando...');
         const userData = JSON.parse(storedUser);
         
         try {
@@ -177,6 +187,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 setToken(accessToken);
                 setUser(userData);
                 ImageService.setAuthToken(accessToken);
+                
+                // Sincronizar el estado del perfil con la base de datos
+                try {
+                  await syncUserProfileFromDatabase(userData, accessToken);
+                } catch (syncError) {
+                  smartLog.error('Error sincronizando perfil del usuario:', syncError);
+                  // Continuar sin sincronización si hay error
+                }
+                
                 return;
               }
             }
@@ -194,6 +213,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 setToken(storedToken);
                 setUser(userData);
                 ImageService.setAuthToken(storedToken);
+                
+                // Sincronizar el estado del perfil con la base de datos
+                try {
+                  await syncUserProfileFromDatabase(userData, storedToken);
+                } catch (syncError) {
+                  smartLog.error('Error sincronizando perfil del usuario:', syncError);
+                  // Continuar sin sincronización si hay error
+                }
+                
                 return;
               }
                           } catch (error) {
@@ -210,10 +238,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         
         // Intentar obtener sesión de Amplify
         try {
+          console.log('🔄 AuthContext: Intentando obtener sesión de Amplify...');
           const session = await Auth.fetchAuthSession();
           const currentUser = await Auth.getCurrentUser();
           
           if (session.tokens && currentUser) {
+            console.log('🔄 AuthContext: Sesión de Amplify encontrada, creando usuario...');
             const userData: User = {
               id: currentUser.userId,
               username: currentUser.username,
@@ -229,6 +259,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               setUser(userData);
               setToken(accessToken);
               ImageService.setAuthToken(accessToken);
+              
+              // Sincronizar el estado del perfil con la base de datos
+              try {
+                console.log('🔄 AuthContext: Sincronizando perfil desde sesión de Amplify...');
+                await syncUserProfileFromDatabase(userData, accessToken);
+              } catch (syncError) {
+                console.error('❌ AuthContext: Error sincronizando perfil desde Amplify:', syncError);
+                // Continuar sin sincronización si hay error
+              }
               
               // Guardar en AsyncStorage
               await AsyncStorage.multiSet([
@@ -247,8 +286,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Limpiar datos en caso de error
         await AsyncStorage.multiRemove(['authToken', 'userData', 'authType']);
       } finally {
-      setIsLoading(false);
-    }
+        console.log('🔄 AuthContext: Finalizando carga de autenticación, estableciendo isLoading = false');
+        setIsLoading(false);
+      }
   };
 
   const login = async (usernameOrEmail: string, password: string): Promise<LoginResponse> => {
@@ -872,6 +912,79 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } catch (error) {
       smartLog.info('User check error');
       return false; // Usuario no existe
+    }
+  };
+
+  const syncUserProfileFromDatabase = async (currentUserData: User, token: string) => {
+    try {
+      console.log('🔄 AuthContext: Iniciando sincronización del perfil del usuario...');
+      console.log('🔄 AuthContext: userId:', currentUserData.id);
+      console.log('🔄 AuthContext: token presente:', !!token);
+      console.log('🔄 AuthContext: profileCompleted actual:', currentUserData.profileCompleted);
+      
+      // Establecer el token temporalmente para la consulta
+      const originalToken = ApiService.getAuthToken();
+      ApiService.setAuthToken(token);
+      
+      try {
+        // Obtener el perfil actualizado del usuario desde la base de datos
+        console.log('🔄 AuthContext: Llamando a /profile...');
+        const response = await ApiService.get('/profile');
+        
+        console.log('🔄 AuthContext: Respuesta del servidor:', {
+          success: response.success,
+          hasData: !!response.data,
+          dataKeys: response.data ? Object.keys(response.data) : 'no data'
+        });
+        
+        if (response.success && response.data) {
+          const dbUser = response.data;
+          console.log('🔄 AuthContext: Datos del usuario desde DB:', {
+            id: dbUser.id,
+            profileCompleted: dbUser.profileCompleted,
+            displayName: dbUser.displayName,
+            hasBirthDate: !!dbUser.birthDate,
+            hasGender: !!dbUser.gender,
+            hasLocation: !!dbUser.location,
+            hasProfileImage: !!dbUser.profileImage
+          });
+          
+          // Actualizar solo los campos que pueden haber cambiado en la base de datos
+          const updatedUser = {
+            ...currentUserData,
+            profileCompleted: dbUser.profileCompleted,
+            displayName: dbUser.displayName,
+            birthDate: dbUser.birthDate,
+            gender: dbUser.gender,
+            profileImage: dbUser.profileImage,
+            location: dbUser.location,
+            active: dbUser.active
+          };
+          
+          console.log('🔄 AuthContext: Usuario actualizado:', {
+            id: updatedUser.id,
+            profileCompleted: updatedUser.profileCompleted,
+            displayName: updatedUser.displayName
+          });
+          
+          setUser(updatedUser);
+          
+          // Actualizar AsyncStorage
+          await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+          
+          console.log('✅ AuthContext: Perfil sincronizado exitosamente desde la base de datos');
+          console.log(`✅ AuthContext: profileCompleted actualizado a: ${dbUser.profileCompleted}`);
+        } else {
+          console.log('⚠️ AuthContext: No se pudo obtener el perfil actualizado de la base de datos');
+          console.log('⚠️ AuthContext: Respuesta:', response);
+        }
+      } finally {
+        // Restaurar el token original
+        ApiService.setAuthToken(originalToken || '');
+      }
+    } catch (error) {
+      console.error('❌ AuthContext: Error sincronizando perfil desde la base de datos:', error);
+      throw error;
     }
   };
 

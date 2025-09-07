@@ -38,6 +38,7 @@ export class User {
       this.profileImage = data.profileImage;
       this.profileImageKey = data.profileImageKey;
       this.profileCompleted = data.profileCompleted || false;
+      this.description = data.description;
       this.passwordChangedAt = data.passwordChangedAt;
       this.active = data.active !== undefined ? data.active : true;
       this.lastLogin = data.lastLogin;

@@ -31,10 +31,10 @@ class BackgroundSyncService {
   private appState: AppStateStatus = 'active';
   
   private config: BackgroundSyncConfig = {
-    syncInterval: 30000, // 30 segundos
-    maxConcurrentSyncs: 3,
-    retryAttempts: 3,
-    retryDelay: 5000 // 5 segundos
+    syncInterval: 60000, // 60 segundos (reducido de 30s)
+    maxConcurrentSyncs: 2, // Reducido de 3
+    retryAttempts: 2, // Reducido de 3
+    retryDelay: 10000 // 10 segundos (aumentado de 5s)
   };
 
   constructor() {
@@ -45,6 +45,12 @@ class BackgroundSyncService {
    * Inicializa el servicio de sincronización en segundo plano
    */
   async initialize(userId: string) {
+    // Evitar reinicialización si ya está corriendo para el mismo usuario
+    if (this.isRunning && this.currentUserId === userId) {
+      console.log('🔄 BackgroundSync: Servicio ya inicializado para usuario:', userId);
+      return;
+    }
+    
     this.currentUserId = userId;
     console.log('🔄 BackgroundSync: Inicializando servicio para usuario:', userId);
     
@@ -80,7 +86,6 @@ class BackgroundSyncService {
     };
     
     this.conversations.set(conversationId, conversation);
-    console.log(`➕ BackgroundSync: Añadida conversación ${conversationId} para sincronización`);
     
     // Sincronizar inmediatamente si no está corriendo el timer
     if (!this.isRunning) {
@@ -93,7 +98,6 @@ class BackgroundSyncService {
    */
   removeConversation(conversationId: string) {
     this.conversations.delete(conversationId);
-    console.log(`➖ BackgroundSync: Removida conversación ${conversationId} de sincronización`);
   }
 
   /**
@@ -103,7 +107,6 @@ class BackgroundSyncService {
     const conversation = this.conversations.get(conversationId);
     if (conversation) {
       conversation.isActive = isActive;
-      console.log(`👁️ BackgroundSync: Conversación ${conversationId} marcada como ${isActive ? 'activa' : 'inactiva'}`);
     }
   }
 
@@ -167,7 +170,10 @@ class BackgroundSyncService {
         this.addConversation(conv.conversationId, conv.participants || []);
       });
       
-      console.log(`📋 BackgroundSync: Cargadas ${conversations.length} conversaciones`);
+      // Solo loggear si hay conversaciones nuevas o es la primera carga
+      if (conversations.length > 0) {
+        console.log(`📋 BackgroundSync: Cargadas ${conversations.length} conversaciones`);
+      }
     } catch (error) {
       console.error('Error cargando conversaciones para sincronización:', error);
     }
@@ -196,10 +202,14 @@ class BackgroundSyncService {
       .slice(0, this.config.maxConcurrentSyncs);
     
     if (conversationsToSync.length === 0) {
-      console.log('✅ BackgroundSync: No hay conversaciones que necesiten sincronización');
+      // Solo loggear ocasionalmente para evitar spam
+      if (Math.random() < 0.1) { // 10% de probabilidad
+        console.log('✅ BackgroundSync: No hay conversaciones que necesiten sincronización');
+      }
       return;
     }
     
+    // Solo loggear si hay conversaciones que sincronizar
     console.log(`🔄 BackgroundSync: Sincronizando ${conversationsToSync.length} conversaciones`);
     
     // Sincronizar conversaciones en paralelo
@@ -215,17 +225,14 @@ class BackgroundSyncService {
     if (!conversation) return;
     
     try {
-      console.log(`🔄 BackgroundSync: Sincronizando conversación ${conversationId}`);
-      
       // Verificar si realmente necesita sincronización
       const needsSync = await cacheService.needsSync(conversationId, conversation.lastMessageId);
       if (!needsSync) {
-        console.log(`✅ BackgroundSync: Conversación ${conversationId} ya está actualizada`);
         return;
       }
       
-      // Obtener mensajes del servidor
-      const response = await ApiService.listMessages(conversationId, { limit: 20 });
+      // Obtener mensajes del servidor con límite reducido para ahorrar datos
+      const response = await ApiService.listMessages(conversationId, { limit: 10 }); // Reducido de 20 a 10
       const serverMessages = (response.data?.items || []) as ChatMessage[];
       
       if (serverMessages.length > 0) {
@@ -236,8 +243,6 @@ class BackgroundSyncService {
         const lastMessage = serverMessages[serverMessages.length - 1];
         conversation.lastMessageId = lastMessage.messageId;
         conversation.lastSyncTime = new Date().toISOString();
-        
-        console.log(`✅ BackgroundSync: Sincronizada conversación ${conversationId} con ${serverMessages.length} mensajes`);
         
         // Emitir evento de actualización si hay nuevos mensajes
         this.emitConversationUpdate(conversationId, serverMessages);
@@ -258,16 +263,16 @@ class BackgroundSyncService {
     const timeSinceLastSync = now - lastSync;
     
     // Sincronizar si:
-    // 1. Ha pasado más de 30 segundos desde la última sincronización
-    // 2. La conversación está activa y ha pasado más de 10 segundos
+    // 1. Ha pasado más de 60 segundos desde la última sincronización
+    // 2. La conversación está activa y ha pasado más de 30 segundos
     // 3. Nunca se ha sincronizado
     
     if (!conversation.lastMessageId) return true; // Primera sincronización
     
     if (conversation.isActive) {
-      return timeSinceLastSync > 10000; // 10 segundos para conversaciones activas
+      return timeSinceLastSync > 30000; // 30 segundos para conversaciones activas (aumentado de 10s)
     } else {
-      return timeSinceLastSync > 30000; // 30 segundos para conversaciones inactivas
+      return timeSinceLastSync > 120000; // 2 minutos para conversaciones inactivas (aumentado de 30s)
     }
   }
 

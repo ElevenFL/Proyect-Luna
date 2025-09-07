@@ -39,7 +39,6 @@ class SocketService {
       this.userId = userId;
 
       this.socket.on('connect', () => {
-        console.log('🔌 Conectado a WebSocket:', this.socket?.id);
         this.isConnected = true;
         
         // Autenticar usuario
@@ -49,28 +48,16 @@ class SocketService {
       });
 
       this.socket.on('disconnect', () => {
-        console.log('❌ Desconectado de WebSocket');
         this.isConnected = false;
       });
 
       this.socket.on('connect_error', (error) => {
-        console.error('❌ Error de conexión WebSocket:', error);
         this.isConnected = false;
         reject(error);
       });
 
       // Escuchar nuevos mensajes
       this.socket.on('new-message', (message: ChatMessage) => {
-        console.log('📨 Nuevo mensaje recibido:', message);
-        console.log('🔍 Detalles del mensaje:', {
-          messageId: message.messageId,
-          senderId: message.senderId,
-          receiverId: message.receiverId,
-          content: message.content?.substring(0, 50) + '...',
-          type: message.type,
-          createdAt: message.createdAt
-        });
-        
         // Notificar a todos los listeners
         this.messageListeners.forEach(listener => {
           try {
@@ -83,12 +70,6 @@ class SocketService {
 
       // Escuchar actualizaciones de conversaciones
       this.socket.on('conversation-updated', (data: { conversationId: string; lastMessage: ChatMessage; updatedAt: string }) => {
-        console.log('📋 Conversación actualizada:', {
-          conversationId: data.conversationId,
-          lastMessage: data.lastMessage?.content?.substring(0, 30) + '...',
-          updatedAt: data.updatedAt
-        });
-        
         // Notificar a los listeners de conversaciones si los hay
         this.conversationListeners.forEach(listener => {
           try {
@@ -110,7 +91,6 @@ class SocketService {
       this.socket = null;
       this.isConnected = false;
       this.userId = null;
-      console.log('🔌 WebSocket desconectado');
     }
   }
 
@@ -120,7 +100,6 @@ class SocketService {
   joinConversation(conversationId: string) {
     if (this.socket && this.isConnected) {
       this.socket.emit('join-conversation', conversationId);
-      console.log(`👥 Unido a conversación: ${conversationId}`);
     }
   }
 
@@ -130,7 +109,6 @@ class SocketService {
   leaveConversation(conversationId: string) {
     if (this.socket && this.isConnected) {
       this.socket.emit('leave-conversation', conversationId);
-      console.log(`👋 Salido de conversación: ${conversationId}`);
     }
   }
 

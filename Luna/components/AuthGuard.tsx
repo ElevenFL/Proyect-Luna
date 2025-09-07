@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { router, usePathname } from 'expo-router';
@@ -21,33 +21,73 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
   const [isRedirecting, setIsRedirecting] = useState(false);
   const config = getAppConfig();
   const currentRoute = usePathname();
+  const lastEvaluatedRoute = useRef<string | null>(null);
+  const lastUserState = useRef<any>(null);
+
+  // Memoizar el estado del usuario para evitar re-evaluaciones innecesarias
+  const userState = useMemo(() => ({
+    hasUser: !!user,
+    userId: user?.id,
+    profileCompleted: user?.profileCompleted
+  }), [user?.id, user?.profileCompleted]);
 
   // Efecto unificado para manejar todas las redirecciones
   useEffect(() => {
     if (isLoading || isRedirecting) return;
 
-    console.log('AuthGuard: Evaluando redirección...', { 
-      user: !!user, 
-      requireAuth, 
-      currentRoute,
-      profileCompleted: user?.profileCompleted,
-      userId: user?.id
-    });
+    // Solo evaluar si realmente ha cambiado algo importante
+    const hasRouteChanged = lastEvaluatedRoute.current !== currentRoute;
+    const hasUserStateChanged = JSON.stringify(lastUserState.current) !== JSON.stringify(userState);
+    
+    // Si no hay cambios significativos, no hacer nada
+    if (!hasRouteChanged && !hasUserStateChanged) {
+      return;
+    }
+
+    // Si estamos navegando entre tabs y el usuario está autenticado correctamente, no evaluar
+    const isTabNavigation = currentRoute.includes('/(tabs)') && lastEvaluatedRoute.current?.includes('/(tabs)');
+    const isUserProperlyAuthenticated = userState.hasUser && userState.profileCompleted;
+    
+    if (isTabNavigation && isUserProperlyAuthenticated && !hasUserStateChanged) {
+      // Solo actualizar la referencia de ruta sin hacer evaluaciones
+      lastEvaluatedRoute.current = currentRoute;
+      return;
+    }
+
+    // Solo loggear cuando hay cambios reales y no es navegación entre tabs
+    // Y solo en desarrollo para evitar spam en producción
+    if ((hasUserStateChanged || (hasRouteChanged && !isTabNavigation)) && __DEV__) {
+      console.log('AuthGuard: Evaluando redirección...', { 
+        user: userState.hasUser, 
+        requireAuth, 
+        currentRoute,
+        profileCompleted: userState.profileCompleted,
+        userId: userState.userId
+      });
+    }
+
+    // Actualizar referencias
+    lastEvaluatedRoute.current = currentRoute;
+    lastUserState.current = userState;
 
     const timer = setTimeout(() => {
       // Caso 1: Requiere autenticación pero no hay usuario
-      if (requireAuth && !user) {
-        console.log('AuthGuard: Usuario no autenticado, redirigiendo a:', redirectTo);
+      if (requireAuth && !userState.hasUser) {
+        if (__DEV__) {
+          console.log('AuthGuard: Usuario no autenticado, redirigiendo a:', redirectTo);
+        }
         setIsRedirecting(true);
         router.replace(redirectTo);
         return;
       }
 
       // Caso 2: No requiere autenticación pero hay usuario
-      if (!requireAuth && user) {
-        console.log('AuthGuard: Usuario autenticado en página pública, redirigiendo...');
+      if (!requireAuth && userState.hasUser) {
+        if (__DEV__) {
+          console.log('AuthGuard: Usuario autenticado en página pública, redirigiendo...');
+        }
         setIsRedirecting(true);
-        if (user.profileCompleted) {
+        if (userState.profileCompleted) {
           router.replace('/(tabs)');
         } else {
           router.replace('/onboarding/welcome');
@@ -56,20 +96,19 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
       }
 
       // Caso 3: Usuario autenticado pero en rutas incorrectas
-      if (user && requireAuth) {
+      if (userState.hasUser && requireAuth) {
         const isInTabs = currentRoute.includes('/(tabs)');
         const isInOnboarding = currentRoute.includes('/onboarding');
         const isInAuth = currentRoute.includes('/(auth)');
 
-        if (!user.profileCompleted && isInTabs) {
+        if (!userState.profileCompleted && isInTabs) {
           console.log('AuthGuard: Usuario sin perfil completo, redirigiendo al onboarding');
-          console.log('AuthGuard: profileCompleted =', user.profileCompleted);
           setIsRedirecting(true);
           router.replace('/onboarding/welcome');
           return;
         }
 
-        if (user.profileCompleted && isInOnboarding) {
+        if (userState.profileCompleted && isInOnboarding) {
           console.log('AuthGuard: Usuario con perfil completo, redirigiendo a las tabs');
           setIsRedirecting(true);
           router.replace('/(tabs)');
@@ -77,15 +116,14 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
         }
 
         // Caso especial: Si estamos en /onboarding/complete y el perfil está completo, permitir continuar
-        if (currentRoute === '/onboarding/complete' && user.profileCompleted) {
-          console.log('AuthGuard: En pantalla de completado con perfil completo, permitiendo continuar');
+        if (currentRoute === '/onboarding/complete' && userState.profileCompleted) {
           return;
         }
 
         if (isInAuth) {
           console.log('AuthGuard: Usuario autenticado en páginas de auth, redirigiendo...');
           setIsRedirecting(true);
-          if (user.profileCompleted) {
+          if (userState.profileCompleted) {
             router.replace('/(tabs)');
           } else {
             router.replace('/onboarding/welcome');
@@ -99,7 +137,7 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [user, isLoading, requireAuth, redirectTo, currentRoute]);
+  }, [userState, isLoading, requireAuth, redirectTo, currentRoute]);
 
   // Efecto para manejar reintentos de redirección fallidos
   useEffect(() => {

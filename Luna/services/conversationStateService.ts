@@ -53,6 +53,17 @@ class ConversationStateService {
       const states = await this.getConversationStates();
       const currentState = states[conversationId];
       
+      // Verificar si realmente hay cambios para evitar actualizaciones innecesarias
+      const hasChanges = Object.keys(updates).some(key => {
+        const currentValue = currentState?.[key as keyof ConversationState];
+        const newValue = updates[key as keyof ConversationState];
+        return currentValue !== newValue;
+      });
+      
+      if (!hasChanges && currentState) {
+        return; // No hay cambios, no actualizar
+      }
+      
       const updatedState: ConversationState = {
         conversationId,
         isInitialized: false,
@@ -72,7 +83,6 @@ class ConversationStateService {
       await this.cleanupOldStates(states);
       
       await AsyncStorage.setItem(this.STATE_KEY, JSON.stringify(states));
-      console.log(`📊 Estado: Actualizado estado de conversación ${conversationId} (v${updatedState.version})`);
     } catch (error) {
       console.error('Error actualizando estado de conversación:', error);
     }
@@ -266,3 +276,4 @@ class ConversationStateService {
 // Singleton
 export const conversationStateService = new ConversationStateService();
 export default conversationStateService;
+

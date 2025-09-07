@@ -147,13 +147,13 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   profileImage: {
-    width: 50,
-    height: 50,
+    width: 56,
+    height: 56,
     borderRadius: 16,
   },
   profilePlaceholder: {
-    width: 50,
-    height: 50,
+    width: 56,
+    height: 56,
     borderRadius: 16,
     backgroundColor: '#F9C80E',
     justifyContent: 'center',

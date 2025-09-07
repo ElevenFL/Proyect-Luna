@@ -25,7 +25,10 @@ export class ImageService {
    */
   static setAuthToken(token: string) {
     ApiService.setAuthToken(token);
-    console.log('Token de autenticación establecido en ImageService');
+    // Solo loggear en desarrollo
+    if (__DEV__) {
+      console.log('Token de autenticación establecido en ImageService');
+    }
   }
 
   /**
@@ -303,11 +306,15 @@ export class ImageService {
    */
   static async deleteImage(imageKey: string): Promise<boolean> {
     try {
-      console.log('Eliminando imagen:', imageKey);
+      if (__DEV__) {
+        console.log('Eliminando imagen:', imageKey);
+      }
       
       await ApiService.delete(`/images/delete/${encodeURIComponent(imageKey)}`);
       
-      console.log('Imagen eliminada exitosamente');
+      if (__DEV__) {
+        console.log('Imagen eliminada exitosamente');
+      }
       return true;
     } catch (error) {
       console.error('Error eliminando imagen:', error);
