@@ -5,6 +5,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatProvider';
+import OptimizedImage from '@/components/OptimizedImage';
 
 interface ConversationItem {
   conversationId: string;
@@ -122,12 +123,12 @@ export default function GlobalMessagesScreen() {
         console.error(`❌ Error en precarga para ${conversation.otherUser.id}:`, error);
       });
       
-      // Navegar inmediatamente
+      // Navegar inmediatamente con información validada
       router.push({ 
         pathname: '/chat/[userId]', 
         params: { 
           userId: conversation.otherUser.id,
-          userName: conversation.otherUser.name,
+          userName: conversation.otherUser.name || '',
           userImage: conversation.otherUser.profileImage || '',
           userAge: conversation.otherUser.age?.toString() || '',
           userGender: conversation.otherUser.gender || 'other',
@@ -256,11 +257,20 @@ export default function GlobalMessagesScreen() {
             <View style={styles.content}>
               {/* Profile Picture */}
               <View style={styles.profileContainer}>
-                <View style={styles.profilePlaceholder}>
-                  <Text style={styles.initialsText}>
-                    {getInitials(item.otherUser.name)}
-                  </Text>
-                </View>
+                {item.otherUser.profileImage ? (
+                  <OptimizedImage 
+                    uri={item.otherUser.profileImage} 
+                    style={styles.profileImage}
+                    cachePolicy="memory-disk"
+                    priority="normal"
+                  />
+                ) : (
+                  <View style={styles.profilePlaceholder}>
+                    <Text style={styles.initialsText}>
+                      {getInitials(item.otherUser.name)}
+                    </Text>
+                  </View>
+                )}
                 
                 {/* Online Status Indicator */}
                 <View style={[
@@ -353,9 +363,18 @@ export default function GlobalMessagesScreen() {
                 isTyping: chat.isTyping
               })}
             >
-              <Text style={styles.avatarInitialsText}>
-                {getInitials(chat.otherUser.name)}
-              </Text>
+              {chat.otherUser.profileImage ? (
+                <OptimizedImage 
+                  uri={chat.otherUser.profileImage} 
+                  style={styles.avatarImage}
+                  cachePolicy="memory-disk"
+                  priority="normal"
+                />
+              ) : (
+                <Text style={styles.avatarInitialsText}>
+                  {getInitials(chat.otherUser.name)}
+                </Text>
+              )}
               {chat.unreadCount > 0 && (
                 <View style={styles.avatarBadge}>
                   <Text style={styles.avatarBadgeText}>
@@ -465,6 +484,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#000000',
   },
+  avatarImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+  },
   avatarBadge: {
     position: 'absolute',
     top: -2,
@@ -571,6 +595,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9C80E',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  profileImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
   },
   initialsText: {
     fontSize: 16,

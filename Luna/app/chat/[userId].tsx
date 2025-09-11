@@ -1,12 +1,14 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, StatusBar, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, StatusBar, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Image, ActivityIndicator, Alert } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, withTiming, withDelay, interpolate } from 'react-native-reanimated';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatProvider';
 import { ChatMessage } from '@/services/optimizedChatService';
+import { ImageService } from '@/services/imageService';
 
 /**
  * Componente de chat que usa el ChatProvider global para gestión de estado
@@ -41,9 +43,11 @@ const GlobalChatScreen = React.memo(() => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [isLoading, setIsLoading] = useState(true); // Iniciar como true para evitar flash
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isLoading, setIsLoading] = useState(false); // Iniciar como false para evitar flash innecesario
   const [messagesLoaded, setMessagesLoaded] = useState(false); // Nuevo estado para rastrear si los mensajes se cargaron
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+  const [shouldAnimateMessages, setShouldAnimateMessages] = useState(false); // Estado para controlar animación de entrada
   const [otherUserInfo, setOtherUserInfo] = useState<{
     name: string;
     profileImage?: string;
@@ -172,15 +176,19 @@ const GlobalChatScreen = React.memo(() => {
 
   // Configurar información del otro usuario inmediatamente
   useEffect(() => {
-    setOtherUserInfo({
-      name: String(userName || `Usuario ${String(otherUserId).slice(-4)}`),
-      profileImage: userImage ? String(userImage) : undefined,
-      age: userAge ? parseInt(String(userAge)) : undefined,
-      gender: String(userGender || 'other') as 'male' | 'female' | 'other',
-      country: String(userCountry || 'Unknown'),
-      countryFlag: String(userCountryFlag || '🌍'),
-      isOnline: isOnline === 'true'
-    });
+    // Solo configurar si tenemos información válida del usuario
+    const userNameStr = Array.isArray(userName) ? userName[0] : userName;
+    if (userNameStr && userNameStr !== 'undefined' && userNameStr.trim() !== '') {
+      setOtherUserInfo({
+        name: String(userNameStr),
+        profileImage: userImage ? String(userImage) : undefined,
+        age: userAge ? parseInt(String(userAge)) : undefined,
+        gender: String(userGender || 'other') as 'male' | 'female' | 'other',
+        country: String(userCountry || 'Unknown'),
+        countryFlag: String(userCountryFlag || '🌍'),
+        isOnline: isOnline === 'true'
+      });
+    }
   }, [userName, userImage, otherUserId, userAge, userGender, userCountry, userCountryFlag, isOnline]);
 
   // Inicialización y gestión del chat usando ChatProvider
@@ -189,13 +197,25 @@ const GlobalChatScreen = React.memo(() => {
       if (!otherUserId || !currentUserId) return;
       
       try {
-        setIsLoading(true);
-        setMessagesLoaded(false); // Resetear estado de mensajes cargados
-        console.log('🔍 GlobalChat: Inicializando chat con usuario:', otherUserId, 'currentConversationId:', conversationIdRef.current);
+        // Resetear estados de animación al cambiar de chat
+        setShouldAnimateMessages(false);
+        setMessagesLoaded(false);
         
-        // Preparar información del usuario
-        const userInfo = {
-          name: String(userName || `Usuario ${String(otherUserId).slice(-4)}`),
+        // Verificar si ya existe un chat con este usuario y tiene mensajes
+        const existingChat = getChatByUserId(String(otherUserId));
+        const hasCachedMessages = existingChat && existingChat.messages.length > 0;
+        
+        // Solo mostrar loading si no hay mensajes en cache
+        if (!hasCachedMessages) {
+          setIsLoading(true);
+        }
+        
+        console.log('🔍 GlobalChat: Inicializando chat con usuario:', otherUserId, 'currentConversationId:', conversationIdRef.current, 'hasCachedMessages:', hasCachedMessages);
+        
+        // Preparar información del usuario - usar información del ChatProvider si está disponible
+        const userNameStr = Array.isArray(userName) ? userName[0] : userName;
+        let userInfo = {
+          name: String(userNameStr || `Usuario ${String(otherUserId).slice(-4)}`),
           profileImage: userImage ? String(userImage) : undefined,
           isOnline: isOnline === 'true',
           age: userAge ? parseInt(String(userAge)) : undefined,
@@ -204,6 +224,34 @@ const GlobalChatScreen = React.memo(() => {
           countryFlag: String(userCountryFlag || '🌍')
         };
 
+        // Si no tenemos información válida del usuario, intentar obtenerla del ChatProvider
+        if ((!userNameStr || userNameStr === 'undefined' || userNameStr.trim() === '') && otherUserId) {
+          const existingChat = getChatByUserId(String(otherUserId));
+          if (existingChat?.otherUser) {
+            userInfo = {
+              name: existingChat.otherUser.name,
+              profileImage: existingChat.otherUser.profileImage,
+              isOnline: existingChat.otherUser.isOnline || false,
+              age: existingChat.otherUser.age,
+              gender: existingChat.otherUser.gender || 'other',
+              country: existingChat.otherUser.country || 'Unknown',
+              countryFlag: existingChat.otherUser.countryFlag || '🌍'
+            };
+            
+            // Actualizar el estado local con la información del ChatProvider
+            setOtherUserInfo({
+              name: existingChat.otherUser.name,
+              profileImage: existingChat.otherUser.profileImage,
+              age: existingChat.otherUser.age,
+              gender: existingChat.otherUser.gender,
+              country: existingChat.otherUser.country,
+              countryFlag: existingChat.otherUser.countryFlag,
+              isOnline: existingChat.otherUser.isOnline,
+              lastSeen: existingChat.otherUser.lastSeen
+            });
+          }
+        }
+
         // Abrir o recuperar chat usando ChatProvider
         const chatConversationId = await openChatRef.current(String(otherUserId), userInfo);
         setConversationId(chatConversationId);
@@ -211,6 +259,11 @@ const GlobalChatScreen = React.memo(() => {
         
         // Establecer como chat actual
         setCurrentChatRef.current(chatConversationId);
+        
+        // Si ya teníamos mensajes en cache, quitar el loading inmediatamente
+        if (hasCachedMessages) {
+          setIsLoading(false);
+        }
         
         // Obtener información completa del otro usuario
         try {
@@ -252,6 +305,19 @@ const GlobalChatScreen = React.memo(() => {
       const chatMessages = getMessages(conversationId);
       setMessages(chatMessages);
       setMessagesLoaded(true); // Marcar que los mensajes se han cargado
+      
+      // Si hay mensajes, quitar el estado de loading
+      if (chatMessages.length > 0) {
+        setIsLoading(false);
+        
+        // Activar animación de entrada solo si es la primera carga de mensajes
+        if (!messagesLoaded && chatMessages.length > 0) {
+          setShouldAnimateMessages(true);
+          // Desactivar la animación después de que termine
+          setTimeout(() => setShouldAnimateMessages(false), 1000);
+        }
+      }
+      
       console.log(`📨 GlobalChat: Sincronizados ${chatMessages.length} mensajes del ChatProvider`);
       
       // Inicializar estados de paginación solo una vez
@@ -271,7 +337,7 @@ const GlobalChatScreen = React.memo(() => {
 
   // Listener para cambios en el chat actual (cuando recibimos mensajes nuevos)
   useEffect(() => {
-    if (conversationId) {
+    if (conversationId && messagesLoaded) {
       const chatMessages = getMessages(conversationId);
       
       // Comparar mensajes por IDs para detectar cambios reales
@@ -282,11 +348,11 @@ const GlobalChatScreen = React.memo(() => {
         setMessages(chatMessages);
         console.log(`📨 GlobalChat: Mensajes actualizados: ${chatMessages.length}`);
         
-        // Scroll automático para mensajes nuevos
+        // Scroll automático para mensajes nuevos (sin animación)
         setTimeout(() => scrollToEnd(false), 100);
       }
     }
-  }, [conversationId, getMessages]); // Usar getMessages como dependencia para detectar cambios
+  }, [conversationId, getMessages, messagesLoaded]); // Usar getMessages como dependencia para detectar cambios
 
   // Listener adicional para cambios en el estado del ChatProvider
   useEffect(() => {
@@ -317,6 +383,159 @@ const GlobalChatScreen = React.memo(() => {
       }
     };
   }, []); // Sin dependencias - solo ejecutar al desmontar
+
+  // Función para manejar la subida de imagen
+  const handleImageUpload = useCallback(async (imageUri: string) => {
+    console.log('📸 GlobalChat: handleImageUpload called', {
+      conversationId: !!conversationId,
+      isUploadingImage,
+      imageUri: imageUri.substring(0, 50) + '...'
+    });
+
+    if (!conversationId) {
+      console.warn('❌ GlobalChat: No conversationId available');
+      Alert.alert('Error', 'No hay conversación activa.');
+      return;
+    }
+
+    if (isUploadingImage) {
+      console.warn('❌ GlobalChat: Upload already in progress');
+      Alert.alert('Subida en progreso', 'Ya hay una imagen subiéndose.');
+      return;
+    }
+
+    setIsUploadingImage(true);
+    console.log('📸 GlobalChat: Upload state set to true');
+
+    try {
+      console.log('📸 GlobalChat: Iniciando subida de imagen:', imageUri);
+
+      // Subir imagen al servidor primero
+      const uploadedImageUrl = await ImageService.uploadOptimizedImage(
+        imageUri,
+        'chat-images', // carpeta específica para imágenes del chat
+        {
+          maxWidth: 800,
+          maxHeight: 600,
+          quality: 0.8,
+          format: 'jpeg'
+        }
+      );
+
+      console.log('✅ GlobalChat: Imagen subida exitosamente:', uploadedImageUrl);
+
+      // Enviar mensaje con la URL de la imagen subida
+      await sendMessage(conversationId, uploadedImageUrl, undefined, 'image');
+      console.log('✅ GlobalChat: Mensaje enviado exitosamente');
+
+      // Forzar scroll para ver la imagen
+      setTimeout(() => scrollToEnd(true), 200);
+
+    } catch (error) {
+      console.error('❌ GlobalChat: Error subiendo imagen:', error);
+      Alert.alert('Error', 'No se pudo enviar la imagen. Inténtalo de nuevo.');
+    } finally {
+      console.log('🔄 GlobalChat: Resetting upload state');
+      // Usar setTimeout para asegurar que el estado se resetee después de que termine el render
+      setTimeout(() => {
+        setIsUploadingImage(false);
+        console.log('🔄 GlobalChat: Upload state reset to false');
+      }, 100);
+    }
+  }, [conversationId, sendMessage, scrollToEnd]);
+
+  // Función para seleccionar imagen de la galería
+  const selectFromGallery = useCallback(async () => {
+    console.log('📱 GlobalChat: selectFromGallery called');
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      console.log('📱 GlobalChat: Gallery result:', { 
+        canceled: result.canceled, 
+        hasAssets: result.assets && result.assets.length > 0 
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        console.log('📱 GlobalChat: Calling handleImageUpload');
+        await handleImageUpload(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error seleccionando imagen de galería:', error);
+      Alert.alert('Error', 'No se pudo seleccionar la imagen.');
+    }
+  }, [handleImageUpload]);
+
+  // Función para tomar foto con la cámara
+  const selectFromCamera = useCallback(async () => {
+    try {
+      const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+      
+      if (permissionResult.granted === false) {
+        Alert.alert('Permisos requeridos', 'Necesitas dar permisos para usar la cámara.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        await handleImageUpload(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error tomando foto:', error);
+      Alert.alert('Error', 'No se pudo tomar la foto.');
+    }
+  }, [handleImageUpload]);
+
+  // Función para seleccionar imagen
+  const pickImage = useCallback(async () => {
+    console.log('📷 GlobalChat: pickImage called', { isUploadingImage });
+    
+    if (isUploadingImage) {
+      console.warn('📷 GlobalChat: Upload in progress, ignoring request');
+      Alert.alert('Subida en progreso', 'Espera a que termine la subida actual.');
+      return;
+    }
+
+    try {
+      // Pedir permisos para acceder a la galería
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      console.log('📷 GlobalChat: Permission result:', permissionResult.granted);
+      
+      if (permissionResult.granted === false) {
+        Alert.alert('Permisos requeridos', 'Necesitas dar permisos para acceder a la galería de fotos.');
+        return;
+      }
+
+      // Mostrar opciones para seleccionar imagen
+      Alert.alert(
+        'Seleccionar imagen',
+        'Elige una opción',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Galería', onPress: () => {
+            console.log('📷 Gallery option selected');
+            selectFromGallery();
+          }},
+          { text: 'Cámara', onPress: () => {
+            console.log('📷 Camera option selected');
+            selectFromCamera();
+          }}
+        ]
+      );
+    } catch (error) {
+      console.error('Error al solicitar permisos:', error);
+      Alert.alert('Error', 'Ocurrió un error al acceder a la galería.');
+    }
+  }, [selectFromGallery, selectFromCamera, isUploadingImage]);
 
   // Función para enviar mensaje usando ChatProvider
   const handleSend = useCallback(async () => {
@@ -359,6 +578,22 @@ const GlobalChatScreen = React.memo(() => {
     // Optimización: solo aplicar animaciones a mensajes recientes
     const isRecentMessage = index < 20;
     
+    // Animación de entrada para mensajes
+    const entranceOpacity = useSharedValue(shouldAnimateMessages ? 0 : 1);
+    const entranceTranslateY = useSharedValue(shouldAnimateMessages ? 30 : 0);
+    const entranceScale = useSharedValue(shouldAnimateMessages ? 0.8 : 1);
+    
+    // Efecto para animar la entrada del mensaje
+    useEffect(() => {
+      if (shouldAnimateMessages && isRecentMessage) {
+        const delay = Math.min(index * 50, 300); // Máximo 300ms de delay
+        
+        entranceOpacity.value = withDelay(delay, withTiming(1, { duration: 400 }));
+        entranceTranslateY.value = withDelay(delay, withTiming(0, { duration: 400 }));
+        entranceScale.value = withDelay(delay, withTiming(1, { duration: 400 }));
+      }
+    }, [shouldAnimateMessages, index, isRecentMessage]);
+    
     // Detectar si es una respuesta
     const isReply = item.content.startsWith('↳');
     let originalMessage = '';
@@ -387,9 +622,15 @@ const GlobalChatScreen = React.memo(() => {
       .failOffsetY([-5, 5]) : Gesture.Pan().enabled(false);
 
     const animatedStyle = useAnimatedStyle(() => ({
-      transform: [{ translateX: translateX.value }],
-      opacity: Math.max(0.7, 1 - Math.abs(translateX.value) / 200),
-    }), []);
+      transform: [
+        { translateX: translateX.value },
+        { translateY: entranceTranslateY.value },
+        { scale: entranceScale.value }
+      ],
+      opacity: shouldAnimateMessages ? 
+        Math.min(entranceOpacity.value, Math.max(0.7, 1 - Math.abs(translateX.value) / 200)) :
+        Math.max(0.7, 1 - Math.abs(translateX.value) / 200),
+    }), [shouldAnimateMessages]);
 
     return (
       <GestureDetector gesture={panGesture}>
@@ -402,9 +643,41 @@ const GlobalChatScreen = React.memo(() => {
         >
           <View style={[
             styles.bubble,
-            isMine ? styles.bubbleMine : styles.bubbleOther
+            isMine ? styles.bubbleMine : styles.bubbleOther,
+            item.type === 'image' && styles.imageBubble
           ]}>
-            {isReply ? (
+            {item.type === 'image' ? (
+              <TouchableOpacity 
+                style={styles.imageMessageContainer}
+                onPress={() => {
+                  // Mostrar imagen en tamaño completo
+                  Alert.alert(
+                    'Imagen',
+                    'Funcionalidad de vista completa próximamente',
+                    [{ text: 'OK', style: 'default' }]
+                  );
+                }}
+                activeOpacity={0.8}
+              >
+                <Image 
+                  source={{ uri: item.content }} 
+                  style={styles.messageImage}
+                  resizeMode="cover"
+                  onError={(error) => {
+                    console.warn('❌ Error cargando imagen:', error.nativeEvent.error);
+                  }}
+                  onLoad={() => {
+                    console.log('✅ Imagen cargada exitosamente');
+                  }}
+                />
+                {isTemporary && (
+                  <View style={styles.imageLoadingOverlay}>
+                    <ActivityIndicator size="small" color="#F9C80E" />
+                    <Text style={styles.uploadingText}>Subiendo...</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            ) : isReply ? (
               <View style={styles.replyMessageContainer}>
                 <View style={[
                   styles.originalMessagePreview,
@@ -564,12 +837,12 @@ const GlobalChatScreen = React.memo(() => {
           ) : null
         }
         ListEmptyComponent={
-          isLoading ? (
+          isLoading && !messagesLoaded ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#F9C80E" />
               <Text style={styles.loadingText}>Cargando mensajes...</Text>
             </View>
-          ) : messagesLoaded ? (
+          ) : messagesLoaded && messages.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Ionicons name="chatbubbles-outline" size={48} color="#666" />
               <Text style={styles.emptyText}>No hay mensajes aún</Text>
@@ -597,7 +870,34 @@ const GlobalChatScreen = React.memo(() => {
           </View>
         )}
         
+        {isUploadingImage && (
+          <View style={styles.uploadingContainer}>
+            <ActivityIndicator size="small" color="#F9C80E" />
+            <Text style={styles.uploadingMessageText}>Subiendo imagen...</Text>
+            <TouchableOpacity 
+              onPress={() => {
+                console.log('🔄 Force resetting upload state');
+                setIsUploadingImage(false);
+              }}
+              style={styles.resetButton}
+            >
+              <Text style={styles.resetButtonText}>Reset</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        
         <View style={styles.inputBar}>
+          <TouchableOpacity 
+            onPress={pickImage} 
+            disabled={isUploadingImage}
+            style={[styles.imageBtn, { opacity: isUploadingImage ? 0.5 : 1 }]}
+          >
+            {isUploadingImage ? (
+              <ActivityIndicator size="small" color="#F9C80E" />
+            ) : (
+              <Ionicons name="add" size={24} color="#F9C80E" />
+            )}
+          </TouchableOpacity>
           <TextInput
             value={input}
             onChangeText={setInput}
@@ -619,7 +919,7 @@ const GlobalChatScreen = React.memo(() => {
             disabled={isSending || !input.trim()} 
             style={[styles.sendBtn, { opacity: input.trim() ? 1 : 0.5 }]}
           >
-            <Ionicons name="send" size={20} color={input.trim() ? '#000' : '#666'} />
+            <Ionicons name="send" size={20} color={input.trim() ? '#F9C80E' : '#F9C80E'} />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -633,13 +933,13 @@ export default GlobalChatScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#1A1A1A',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#000000',
+    backgroundColor: '#1a1a1a',
   },
   loadingText: {
     color: '#fff',
@@ -647,7 +947,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   header: {
-    marginTop: 10,
+    marginTop: 25,
     height: 56,
     flexDirection: 'row',
     alignItems: 'center',
@@ -655,6 +955,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   backButton: {
+    marginTop: 5,
     width: 36,
     height: 36,
     borderRadius: 18,
@@ -666,10 +967,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   userInfo: {
+    marginTop: 5,
+    marginLeft: 10,
     flexDirection: 'row',
     alignItems: 'center',
   },
   profileImageContainer: {
+    borderRadius: 16,
     marginRight: 12,
     position: 'relative',
   },
@@ -682,7 +986,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#2f2f2f',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -749,15 +1053,19 @@ const styles = StyleSheet.create({
   bubble: {
     paddingVertical: 10,
     paddingHorizontal: 14,
-    borderRadius: 18,
+    borderRadius: 16,
   },
   bubbleMine: {
     backgroundColor: '#F9C80E',
     borderBottomRightRadius: 4,
   },
   bubbleOther: {
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#2F2F2F',
     borderBottomLeftRadius: 4,
+  },
+  imageBubble: {
+    padding: 4,
+    backgroundColor: 'transparent',
   },
   bubbleText: {
     fontSize: 16,
@@ -794,7 +1102,7 @@ const styles = StyleSheet.create({
   replyIndicator: {
     width: 4,
     height: 4,
-    borderRadius: 2,
+    borderRadius: 16,
     marginRight: 8,
   },
   originalMessageText: {
@@ -828,12 +1136,12 @@ const styles = StyleSheet.create({
   replyContainer: {
     backgroundColor: '#1A1A1A',
     borderTopWidth: 1,
-    borderTopColor: '#2A2A2A',
+    borderTopColor: '#2F2F2F',
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
   replyContent: {
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#2F2F2F',
     borderRadius: 12,
     padding: 12,
     borderLeftWidth: 3,
@@ -859,29 +1167,94 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: '#000000',
+    backgroundColor: '#1A1A1A',
     borderTopWidth: 1,
     borderTopColor: '#1A1A1A',
+  },
+  imageBtn: {
+    backgroundColor: '#2F2F2F',
+    borderRadius: 22,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
   textInput: {
     color: '#fff',
     flex: 1,
     minHeight: 40,
     maxHeight: 100,
-    paddingHorizontal: 16,
+    paddingHorizontal: 6,
     paddingVertical: 10,
-    backgroundColor: '#1A1A1A',
-    borderRadius: 20,
+    backgroundColor: '#2F2F2F',
+    borderRadius: 16,
     fontSize: 16,
   },
   sendBtn: {
-    marginLeft: 12,
-    backgroundColor: '#F9C80E',
+    backgroundColor: '#1A1A1A',
     borderRadius: 22,
     width: 44,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 12,
+  },
+  // Estilos para mensajes de imagen
+  imageMessageContainer: {
+    position: 'relative',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  messageImage: {
+    width: 240,
+    height: 180,
+    borderRadius: 12,
+  },
+  imageLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+  },
+  uploadingText: {
+    color: '#F9C80E',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  uploadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#1A1A1A',
+    borderTopWidth: 1,
+    borderTopColor: '#2F2F2F',
+  },
+  uploadingMessageText: {
+    color: '#F9C80E',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  resetButton: {
+    backgroundColor: '#FF4444',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginLeft: 12,
+  },
+  resetButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
   },
   // Estilos para paginación
   loadingOlderContainer: {

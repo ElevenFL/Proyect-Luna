@@ -38,7 +38,7 @@ interface ChatContextType {
   setCurrentChat: (conversationId: string | null) => void;
   
   // Mensajes
-  sendMessage: (conversationId: string, content: string, replyTo?: ChatMessage) => Promise<void>;
+  sendMessage: (conversationId: string, content: string, replyTo?: ChatMessage, messageType?: 'text' | 'image') => Promise<void>;
   getMessages: (conversationId: string) => ChatMessage[];
   markAsRead: (conversationId: string) => void;
   
@@ -366,11 +366,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   // Enviar mensaje
-  const sendMessage = async (conversationId: string, content: string, replyTo?: ChatMessage) => {
+  const sendMessage = async (conversationId: string, content: string, replyTo?: ChatMessage, messageType: 'text' | 'image' = 'text') => {
     try {
       let messageContent = content.trim();
       
-      if (replyTo) {
+      // Solo procesar respuestas para mensajes de texto
+      if (replyTo && messageType === 'text') {
         const originalMessage = replyTo.content.length > 50 
           ? `${replyTo.content.substring(0, 50)}...` 
           : replyTo.content;
@@ -388,7 +389,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         senderId: user!.id,
         receiverId: chat.otherUser.id,
         content: messageContent,
-        type: 'text',
+        type: messageType,
         createdAt: new Date().toISOString(),
         conversationId,
         isOptimistic: true
@@ -410,10 +411,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       await optimizedChatService.sendMessage(conversationId, {
         content: messageContent,
         receiverId: chat.otherUser.id,
-        type: 'text'
+        type: messageType
       });
 
-      console.log(`✅ ChatProvider: Mensaje enviado en ${conversationId}`);
+      console.log(`✅ ChatProvider: Mensaje ${messageType} enviado en ${conversationId}`);
     } catch (error) {
       console.error('❌ ChatProvider: Error enviando mensaje:', error);
       
