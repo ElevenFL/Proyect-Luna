@@ -40,11 +40,22 @@ export default function LoginScreen() {
       console.log('🔍 Login exitoso - Verificando estado del perfil:', {
         hasUser: !!result.user,
         profileCompleted: result.user?.profileCompleted,
-        userId: result.user?.id
+        userId: result.user?.id,
+        hasDisplayName: !!result.user?.displayName,
+        hasLocation: !!result.user?.location,
+        hasProfileImage: !!result.user?.profileImage
       });
       
-      if (result.user && !result.user.profileCompleted) {
-        console.log('🔀 Usuario sin perfil completo, redirigiendo al onboarding');
+      // Lógica más inteligente: verificar múltiples campos para determinar si el perfil está realmente completo
+      const shouldGoToOnboarding = result.user && (
+        !result.user.profileCompleted || 
+        !result.user.displayName || 
+        !result.user.birthDate || 
+        !result.user.gender
+      );
+      
+      if (shouldGoToOnboarding) {
+        console.log('🔀 Usuario con perfil incompleto, redirigiendo al onboarding');
         router.replace('/onboarding/welcome');
       } else {
         console.log('✅ Usuario con perfil completo, redirigiendo a las tabs');

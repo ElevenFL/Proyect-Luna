@@ -602,10 +602,25 @@ router.put("/connection-status", auth, async (req, res) => {
     const userId = req.user.id;
 
     console.log(`🔄 Actualizando estado de conexión para usuario ${userId}: ${isOnline ? 'online' : 'offline'}`);
+    console.log(`🔍 Debug: req.user =`, { id: req.user.id, username: req.user.username, email: req.user.email });
 
+    // Modo desarrollo: si no hay credenciales AWS, responder éxito sin persistir
+    if (process.env.NODE_ENV !== 'production' && (
+      !process.env.AWS_ACCESS_KEY_ID ||
+      !process.env.AWS_SECRET_ACCESS_KEY
+    )) {
+      console.log('🧪 Dev: Sin credenciales AWS, omitiendo persistencia de estado de conexión');
+      return res.json({
+        success: true,
+        message: "Dev: Estado de conexión no persistido (sin AWS)",
+        devMode: true
+      });
+    }
+
+    console.log(`🔍 Buscando usuario en DynamoDB con ID: ${userId}`);
     const user = await User.findById(userId);
     if (!user) {
-      console.log('❌ Usuario no encontrado:', userId);
+      console.log('❌ Usuario no encontrado en DynamoDB:', userId);
       return res.status(404).json({ 
         success: false,
         message: 'Usuario no encontrado',
@@ -613,6 +628,7 @@ router.put("/connection-status", auth, async (req, res) => {
       });
     }
 
+    console.log(`✅ Usuario encontrado, actualizando estado de conexión...`);
     await user.updateConnectionStatus(isOnline, lastConnection);
     
     res.json({
@@ -621,7 +637,29 @@ router.put("/connection-status", auth, async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error actualizando estado de conexión:", error);
+    console.error("❌ Error details:", {
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack
+    });
     
+    // En desarrollo, evitar fallar si DynamoDB no está accesible
+    if (process.env.NODE_ENV !== 'production') {
+      const toleratedErrors = [
+        'ResourceNotFoundException',
+        'AccessDeniedException',
+        'UnrecognizedClientException'
+      ];
+      if (toleratedErrors.includes(error?.name)) {
+        console.log('🧪 Dev: Tolerando error de DynamoDB en updateConnectionStatus:', error?.name);
+        return res.json({
+          success: true,
+          message: "Dev: Estado de conexión no persistido (DynamoDB no disponible)",
+          devMode: true
+        });
+      }
+    }
+
     res.status(500).json({ 
       success: false,
       message: "Error interno del servidor",

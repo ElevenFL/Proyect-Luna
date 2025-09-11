@@ -497,8 +497,8 @@ export class User {
     try {
       const updates = {
         isOnline,
-        connectionPriority: Date.now(),
-        updatedAt: new Date().toISOString()
+        connectionPriority: Date.now()
+        // No incluir updatedAt aquí porque el método update() lo agrega automáticamente
       };
       
       if (lastConnection) {
@@ -548,7 +548,7 @@ export class User {
       const expressionAttributeValues = {};
 
       Object.keys(updateData).forEach((key, index) => {
-        if (key !== 'id') { // No permitir actualizar el ID
+        if (key !== 'id' && key !== 'updatedAt') { // No permitir actualizar el ID ni duplicar updatedAt
           const attrName = `#attr${index}`;
           const attrValue = `:val${index}`;
           
@@ -573,11 +573,12 @@ export class User {
         }
       });
 
-      if (updateExpressions.length === 0) return this;
-
+      // Siempre agregar updatedAt al final para evitar duplicados
       updateExpressions.push('#updatedAt = :updatedAt');
       expressionAttributeNames['#updatedAt'] = 'updatedAt';
       expressionAttributeValues[':updatedAt'] = new Date().toISOString();
+
+      if (updateExpressions.length === 1) return this; // Solo updatedAt, no hay cambios reales
 
       const command = new UpdateCommand({
         TableName: TABLE_NAME,

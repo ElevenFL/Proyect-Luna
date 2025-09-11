@@ -1,5 +1,5 @@
 import ApiService from './apiService';
-import socketService from './socketService';
+import { socketService } from './socketService';
 import cacheService from './cacheService';
 import backgroundSyncService from './backgroundSyncService';
 import conversationStateService from './conversationStateService';
@@ -29,12 +29,10 @@ export interface Conversation {
 class ChatService {
   /**
    * Inicializa el chat para un usuario con sincronización en segundo plano
+   * Nota: La conexión WebSocket se maneja automáticamente por useWebSocketManager
    */
   async initializeChat(userId: string) {
     try {
-      // Conectar WebSocket
-      await socketService.connect(userId);
-      
       // Inicializar sincronización en segundo plano
       await backgroundSyncService.initialize(userId);
       
@@ -46,10 +44,10 @@ class ChatService {
   }
 
   /**
-   * Finaliza el chat y desconecta WebSocket
+   * Finaliza el chat
+   * Nota: El WebSocket se maneja automáticamente por useWebSocketManager
    */
   disconnectChat() {
-    socketService.disconnect();
     backgroundSyncService.stop();
     console.log('🔌 Chat desconectado');
   }

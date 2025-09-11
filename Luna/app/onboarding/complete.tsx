@@ -48,8 +48,11 @@ export default function CompleteScreen() {
       
       console.log('✅ Todos los datos están presentes, procediendo con la actualización');
       
-      // Primero actualizar el contexto local con todos los datos
-      await updateUserProfile({
+      // Configurar el token en ApiService
+      ApiService.setAuthToken(token);
+      
+      // Actualizar el perfil completo en el backend con todos los datos
+      const profileUpdateResponse = await ApiService.updateProfile({
         displayName: displayName as string,
         birthDate: birthDate as string,
         gender: gender as string,
@@ -58,24 +61,53 @@ export default function CompleteScreen() {
         profileCompleted: true
       });
       
-      // Configurar el token en ApiService
-      ApiService.setAuthToken(token);
-      
-      // Luego marcar el perfil como completado en el backend
-      const response = await ApiService.markProfileCompleted();
-      
-      if (response.success) {
-        // Pequeña pausa para asegurar que el contexto se actualice
-        await new Promise(resolve => setTimeout(resolve, 100));
+      if (profileUpdateResponse.success) {
+        console.log('✅ Perfil actualizado exitosamente en el backend');
         
-        // Navegar a la pantalla principal
-        router.replace('/(tabs)');
+        // Actualizar el contexto local con los datos confirmados del backend
+        await updateUserProfile({
+          displayName: displayName as string,
+          birthDate: birthDate as string,
+          gender: gender as string,
+          profileImage: profileImage as string,
+          location: locationData,
+          profileCompleted: true
+        });
+        
+        // Verificar que el perfil se marcó como completado correctamente
+        const profileCheckResponse = await ApiService.getProfile();
+        if (profileCheckResponse.success && profileCheckResponse.data?.profileCompleted) {
+          console.log('✅ Perfil confirmado como completado en el backend');
+          
+          // Pequeña pausa para asegurar que el contexto se actualice
+          await new Promise(resolve => setTimeout(resolve, 200));
+          
+          // Navegar a la pantalla principal
+          router.replace('/(tabs)');
+        } else {
+          console.log('⚠️ El perfil no se marcó como completado correctamente');
+          Alert.alert('Advertencia', 'El perfil se actualizó pero no se marcó como completado. Intenta nuevamente.');
+        }
       } else {
-        Alert.alert('Error', response.message || 'Error al marcar el perfil como completo');
+        console.log('❌ Error actualizando perfil en el backend:', profileUpdateResponse.message);
+        Alert.alert('Error', profileUpdateResponse.message || 'Error al actualizar el perfil');
       }
     } catch (error) {
       console.error('Error actualizando perfil:', error);
-      Alert.alert('Error', 'Error de conexión al actualizar el perfil');
+      
+      // Manejar errores específicos
+      if (error instanceof Error) {
+        if (error.message.includes('Sesión expirada')) {
+          Alert.alert('Sesión Expirada', 'Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
+          // Aquí podrías redirigir al login
+        } else if (error.message.includes('Error de conexión')) {
+          Alert.alert('Error de Conexión', 'No se pudo conectar con el servidor. Verifica tu conexión a internet.');
+        } else {
+          Alert.alert('Error', `Error al actualizar el perfil: ${error.message}`);
+        }
+      } else {
+        Alert.alert('Error', 'Error desconocido al actualizar el perfil');
+      }
     } finally {
       setIsLoading(false);
     }

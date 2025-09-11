@@ -15,7 +15,6 @@ export default function TabLayout() {
             backgroundColor: 'transparent',
             borderTopWidth: 0,
             elevation: 0,
-            shadowOpacity: 0,
             paddingTop: 13,
             paddingHorizontal: 10,
             bottom: 0,
@@ -23,7 +22,7 @@ export default function TabLayout() {
             right: 0,
           },
           tabBarAllowFontScaling: false,
-          headerShown: false, // Esto oculta el header en todas las pantallas
+          headerShown: false,
           tabBarButton: ({ children, onPress }) => (
             <TouchableWithoutFeedback onPress={onPress}>
               <View>{children}</View>

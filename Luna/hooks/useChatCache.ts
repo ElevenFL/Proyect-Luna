@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import cacheService from '@/services/cacheService';
-import { ChatMessage } from '@/services/chatService';
+import { ChatMessage } from '@/services/optimizedChatService';
 
 interface UseChatCacheOptions {
   conversationId: string | null;

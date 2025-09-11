@@ -5,17 +5,34 @@ import dotenv from 'dotenv';
 // Cargar variables de entorno
 dotenv.config();
 
-// Configurar cliente de DynamoDB
+// Configurar cliente de DynamoDB con timeouts optimizados
 const dynamoClient = new DynamoDBClient({
   region: process.env.AWS_REGION || 'us-east-2',
   credentials: {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
+  // Configuraciones de timeout para mejorar rendimiento
+  requestHandler: {
+    requestTimeout: 10000, // 10 segundos timeout para requests
+    connectionTimeout: 5000, // 5 segundos timeout para conexión
+  },
+  maxAttempts: 3, // Máximo 3 intentos
+  retryMode: 'adaptive', // Modo adaptativo de reintentos
 });
 
 // Crear cliente de documento para operaciones más simples
-export const docClient = DynamoDBDocumentClient.from(dynamoClient);
+export const docClient = DynamoDBDocumentClient.from(dynamoClient, {
+  marshallOptions: {
+    // Configuración para serialización
+    removeUndefinedValues: true,
+    convertEmptyValues: false,
+  },
+  unmarshallOptions: {
+    // Configuración para deserialización
+    wrapNumbers: false,
+  },
+});
 
 export const connectDB = async () => {
   try {

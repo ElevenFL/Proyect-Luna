@@ -1,10 +1,12 @@
 export const API_CONFIG = {
-  BASE_URL: process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.11:3000/api',
-  TIMEOUT: 30000, // 30 segundos
+  BASE_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api',
+  TIMEOUT: 15000, // Reducido a 15 segundos para fallar más rápido
   RETRY: {
     MAX_ATTEMPTS: 3,
-    DELAY: 1000, // 1 segundo
-    BACKOFF_FACTOR: 2 // Multiplicador para el retraso entre intentos
+    INITIAL_DELAY: 1000, // Delay inicial de 1 segundo
+    MAX_DELAY: 5000, // Máximo delay de 5 segundos
+    BACKOFF_FACTOR: 1.5, // Factor de backoff más suave
+    JITTER: 500 // Jitter máximo en ms para evitar thundering herd
   },
   IMAGE: {
     MAX_SIZE: 5 * 1024 * 1024, // 5MB

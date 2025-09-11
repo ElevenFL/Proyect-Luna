@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import chatService from '@/services/chatService';
+import optimizedChatService from '@/services/optimizedChatService';
 import { useConversations } from '@/contexts/ConversationContext';
 
 interface BackgroundSyncDebuggerProps {
@@ -33,9 +33,10 @@ export const BackgroundSyncDebugger: React.FC<BackgroundSyncDebuggerProps> = ({
   const refreshData = async () => {
     try {
       const [status, stats, cache] = await Promise.all([
-        chatService.getBackgroundSyncStatus(),
-        chatService.getBackgroundSyncStats(),
-        chatService.getCacheInfo()
+        optimizedChatService.getConnectionStatus(),
+        // Stats del background sync siguen en el servicio dedicado
+        (await import('@/services/backgroundSyncService')).default.getStats(),
+        (await import('@/services/cacheService')).default.getCacheInfo()
       ]);
       
       setSyncStatus(status);
@@ -48,7 +49,8 @@ export const BackgroundSyncDebugger: React.FC<BackgroundSyncDebuggerProps> = ({
 
   const clearAllCache = async () => {
     try {
-      await chatService.clearAllCache();
+      const { default: cacheService } = await import('@/services/cacheService');
+      await cacheService.clearAllCache();
       await refreshData();
       console.log('✅ Caché limpiado');
     } catch (error) {

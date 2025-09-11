@@ -28,14 +28,27 @@ const amplifyConfig = {
   },
 } as const;
 
-// Inicializar Amplify
-try {
-  Amplify.configure(amplifyConfig);
-  console.log('Amplify configurado exitosamente');
-} catch (error) {
-  console.error('Error configurando Amplify:', error);
-  throw new Error('Error inicializando la autenticación. Por favor, contacte a soporte.');
-}
+// Inicializar Amplify con manejo de errores mejorado
+let isAmplifyConfigured = false;
+
+const initializeAmplify = () => {
+  if (isAmplifyConfigured) {
+    return;
+  }
+  
+  try {
+    Amplify.configure(amplifyConfig);
+    isAmplifyConfigured = true;
+    console.log('Amplify configurado exitosamente');
+  } catch (error) {
+    console.error('Error configurando Amplify:', error);
+    // No lanzar error inmediatamente, permitir que la app continúe
+    console.warn('Amplify no se pudo configurar, continuando sin autenticación...');
+  }
+};
+
+// Inicializar Amplify de forma segura
+initializeAmplify();
 
 // Tipos personalizados para mejor tipado
 export interface AuthError extends Error {

@@ -160,6 +160,13 @@ export const useOnboarding = () => {
   const markProfileCompleted = async (): Promise<boolean> => {
     if (!isProfileComplete()) {
       setError('No se puede marcar el perfil como completo. Faltan campos requeridos.');
+      smartLog.error('❌ No se puede marcar perfil como completo - faltan campos:', {
+        hasDisplayName: !!user?.displayName,
+        hasBirthDate: !!user?.birthDate,
+        hasGender: !!user?.gender,
+        hasLocation: !!user?.location,
+        hasProfileImage: !!user?.profileImage
+      });
       return false;
     }
 
@@ -168,29 +175,48 @@ export const useOnboarding = () => {
 
     try {
       smartLog.info('Marcando perfil como completado en DynamoDB...');
-      const response = await ApiService.markProfileCompleted();
+      
+      // Primero actualizar el perfil completo con todos los datos
+      const updateResponse = await ApiService.updateProfile({
+        displayName: user?.displayName,
+        birthDate: user?.birthDate,
+        gender: user?.gender,
+        location: user?.location,
+        profileImage: user?.profileImage,
+        profileCompleted: true
+      });
 
-      if (response.success) {
-        smartLog.info('✅ Perfil marcado como completado exitosamente');
+      if (updateResponse.success) {
+        smartLog.info('✅ Perfil actualizado y marcado como completado exitosamente');
         
-        // Actualizar estado local del usuario con todos los datos del perfil
-        await updateUserProfile({ 
-          profileCompleted: true,
-          // Asegurar que todos los campos estén actualizados
-          ...(user?.displayName && { displayName: user.displayName }),
-          ...(user?.birthDate && { birthDate: user.birthDate }),
-          ...(user?.gender && { gender: user.gender }),
-          ...(user?.location && { location: user.location }),
-          ...(user?.profileImage && { profileImage: user.profileImage })
-        });
-        
-        // Marcar el paso final como completado
-        markStepCompleted('complete');
-        
-        return true;
+        // Verificar que el perfil se marcó como completado correctamente
+        const profileCheckResponse = await ApiService.getProfile();
+        if (profileCheckResponse.success && profileCheckResponse.data?.profileCompleted) {
+          smartLog.info('✅ Perfil confirmado como completado en el backend');
+          
+          // Actualizar estado local del usuario con los datos confirmados del backend
+          await updateUserProfile({ 
+            profileCompleted: true,
+            // Asegurar que todos los campos estén actualizados con los datos del backend
+            displayName: profileCheckResponse.data.displayName || user?.displayName,
+            birthDate: profileCheckResponse.data.birthDate || user?.birthDate,
+            gender: profileCheckResponse.data.gender || user?.gender,
+            location: profileCheckResponse.data.location || user?.location,
+            profileImage: profileCheckResponse.data.profileImage || user?.profileImage
+          });
+          
+          // Marcar el paso final como completado
+          markStepCompleted('complete');
+          
+          return true;
+        } else {
+          setError('El perfil no se marcó como completado correctamente en el backend');
+          smartLog.error('❌ El perfil no se marcó como completado correctamente');
+          return false;
+        }
       } else {
-        setError(response.message || 'Error marcando perfil como completo');
-        smartLog.error('❌ Error marcando perfil como completo:', response.message);
+        setError(updateResponse.message || 'Error actualizando perfil como completo');
+        smartLog.error('❌ Error actualizando perfil como completo:', updateResponse.message);
         return false;
       }
     } catch (err) {

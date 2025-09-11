@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ChatMessage, Conversation } from './chatService';
+import { ChatMessage } from './optimizedChatService';
 
 interface CachedConversation {
   conversationId: string;

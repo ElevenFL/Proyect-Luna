@@ -5,8 +5,9 @@ import { Auth } from '../config/amplify';
 import { ImageService } from '../services/imageService';
 import { API_CONFIG } from '../config/api';
 import ApiService from '../services/apiService';
-import chatService from '../services/chatService';
+import optimizedChatService from '../services/optimizedChatService';
 import { smartLog } from '../config/logging';
+import backgroundSyncService from '../services/backgroundSyncService';
 
 interface User {
   id: string;
@@ -83,6 +84,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isLoading, setIsLoading] = useState(true);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
 
+  // WebSocket management moved to ConversationProvider
+
   useEffect(() => {
     loadStoredAuth();
     
@@ -94,14 +97,34 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, []);
 
-  // Efecto para sincronizar el token con ImageService y ApiService
+  // Efecto para sincronizar el token con ImageService, ApiService y SocketService
   useEffect(() => {
-    if (token) {
+    if (token && user) {
       ImageService.setAuthToken(token);
       ApiService.setAuthToken(token);
+      
+      // Importar servicios dinámicamente para evitar dependencias circulares
+      Promise.all([
+        import('../services/socketService'),
+        import('../services/optimizedChatService')
+      ]).then(([{ socketService }, { default: optimizedChatService }]) => {
+        socketService.setAuthToken(token);
+        
+        // Inicializar optimizedChatService una sola vez aquí
+        if (!optimizedChatService.isInitialized()) {
+          optimizedChatService.initialize(user.id).then(() => {
+            smartLog.info('AuthContext: OptimizedChatService inicializado globalmente');
+          }).catch((error) => {
+            smartLog.error('AuthContext: Error inicializando OptimizedChatService:', error);
+          });
+        }
+        
+        smartLog.info('AuthContext: Token sincronizado con SocketService');
+      });
+      
       smartLog.info('AuthContext: Token sincronizado con ImageService y ApiService');
     }
-  }, [token]);
+  }, [token, user]);
 
       // Manejar cambios en el estado de la app
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
@@ -188,6 +211,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 setUser(userData);
                 ImageService.setAuthToken(accessToken);
                 
+                // Configurar token en socketService
+                import('../services/socketService').then(({ socketService }) => {
+                  socketService.setAuthToken(accessToken);
+                });
+                
                 // Sincronizar el estado del perfil con la base de datos
                 try {
                   await syncUserProfileFromDatabase(userData, accessToken);
@@ -248,7 +276,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               id: currentUser.userId,
               username: currentUser.username,
               email: currentUser.signInDetails?.loginId || '',
-              profileCompleted: false,
+              profileCompleted: true, // Iniciar como true y actualizar según la DB si es posible
               active: true,
               lastLogin: new Date().toISOString()
             };
@@ -306,7 +334,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           id: currentUser.userId,
           username: currentUser.username,
           email: currentUser.signInDetails?.loginId || '',
-          profileCompleted: false, // Por defecto false, se actualizará con el valor real de DynamoDB
+          profileCompleted: true, // Iniciar como true y solo cambiar a false si es necesario
           active: true,
           lastLogin: new Date().toISOString(),
           loginAttempts: 0,
@@ -348,7 +376,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               // Mantener el amplifySub original
               userData.amplifySub = currentUser.userId;
             } else {
-              console.log('⚠️ Error en sincronización, continuando con datos de Amplify');
+              console.log('⚠️ Error en sincronización, verificando si es usuario nuevo o existente');
+              // Si la sincronización falla, asumir que es un usuario existente con perfil completo
+              // Solo usuarios nuevos necesitarían completar el onboarding
+              console.log('⚠️ Manteniendo profileCompleted como true debido a error de sincronización');
             }
           }
         } catch (syncError) {
@@ -371,9 +402,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
           
           // Continuar con el flujo aunque haya error de sincronización
-          // Mantener profileCompleted como false para forzar onboarding si es necesario
+          // Mantener profileCompleted como true asumiendo que es un usuario existente
           console.log('⚠️ Continuando con el login sin sincronización...');
-          console.log('🔧 Manteniendo profileCompleted como false debido a error de sincronización');
+          console.log('🔧 Manteniendo profileCompleted como true debido a error de sincronización (asumiendo usuario existente)');
         }
         
         setUser(userData);
@@ -386,7 +417,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         
         // Inicializar servicios de chat con sincronización en segundo plano
         try {
-          await chatService.initializeChat(userData.id);
+          await optimizedChatService.initialize(userData.id);
           smartLog.info('AuthContext: Servicios de chat inicializados con sincronización en segundo plano');
         } catch (chatError) {
           smartLog.error('AuthContext: Error inicializando servicios de chat:', chatError);
@@ -650,13 +681,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ImageService.setAuthToken('');
       smartLog.info('AuthContext: Token de ImageService limpiado');
       
-      // 4. Desconectar servicios de chat
+      // 4. Desconectar servicios de chat y WebSockets
       try {
-        chatService.disconnectChat();
+        backgroundSyncService.stop();
         smartLog.info('AuthContext: Servicios de chat desconectados');
       } catch (chatError) {
         smartLog.error('AuthContext: Error desconectando servicios de chat:', chatError);
       }
+
+      // WebSocket disconnection now handled by ConversationProvider
       
       // 4. Limpiar todos los datos almacenados localmente
       await AsyncStorage.multiRemove([
@@ -677,6 +710,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setUser(null);
       setToken(null);
       ImageService.setAuthToken('');
+      
+      // WebSocket cleanup now handled by ConversationProvider
       
       // Intentar limpiar AsyncStorage incluso si hay error
       try {
@@ -934,11 +969,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.log('🔄 AuthContext: Respuesta del servidor:', {
           success: response.success,
           hasData: !!response.data,
-          dataKeys: response.data ? Object.keys(response.data) : 'no data'
+          hasUser: !!response.user,
+          dataKeys: response.data ? Object.keys(response.data) : 'no data',
+          userKeys: response.user ? Object.keys(response.user) : 'no user',
+          message: response.message
         });
         
-        if (response.success && response.data) {
-          const dbUser = response.data;
+        // El servidor puede devolver los datos en response.data o response.user
+        const dbUser = response.data || response.user;
+        if (response.success && dbUser) {
           console.log('🔄 AuthContext: Datos del usuario desde DB:', {
             id: dbUser.id,
             profileCompleted: dbUser.profileCompleted,
@@ -977,6 +1016,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         } else {
           console.log('⚠️ AuthContext: No se pudo obtener el perfil actualizado de la base de datos');
           console.log('⚠️ AuthContext: Respuesta:', response);
+          console.log('ℹ️ AuthContext: Manteniendo profileCompleted actual sin cambios');
         }
       } finally {
         // Restaurar el token original
@@ -991,15 +1031,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateUserProfile = async (userData: Partial<User>) => {
     if (user) {
       const updatedUser = { ...user, ...userData };
+      
+      // Log de depuración para ver qué se está actualizando
+      console.log('🔄 AuthContext: Actualizando perfil del usuario:', {
+        userId: updatedUser.id,
+        profileCompleted: updatedUser.profileCompleted,
+        displayName: updatedUser.displayName,
+        hasLocation: !!updatedUser.location,
+        hasProfileImage: !!updatedUser.profileImage
+      });
+      
       setUser(updatedUser);
       
       // Actualizar AsyncStorage de forma asíncrona
       try {
         await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+        console.log('✅ AuthContext: Perfil actualizado en AsyncStorage');
         smartLog.info('AuthContext: Perfil actualizado en AsyncStorage');
       } catch (error) {
+        console.error('❌ AuthContext: Error actualizando AsyncStorage:', error);
         smartLog.error('AuthContext: Error actualizando AsyncStorage:', error);
       }
+    } else {
+      console.warn('⚠️ AuthContext: No hay usuario para actualizar');
+      smartLog.warn('AuthContext: No hay usuario para actualizar');
     }
   };
 

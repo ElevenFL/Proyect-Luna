@@ -25,11 +25,21 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
   const lastUserState = useRef<any>(null);
 
   // Memoizar el estado del usuario para evitar re-evaluaciones innecesarias
-  const userState = useMemo(() => ({
-    hasUser: !!user,
-    userId: user?.id,
-    profileCompleted: user?.profileCompleted
-  }), [user?.id, user?.profileCompleted]);
+  const userState = useMemo(() => {
+    // Lógica más inteligente para verificar si el perfil está completo
+    const profileReallyCompleted = user && (
+      user.profileCompleted && 
+      user.displayName && 
+      user.birthDate && 
+      user.gender
+    );
+    
+    return {
+      hasUser: !!user,
+      userId: user?.id,
+      profileCompleted: !!profileReallyCompleted
+    };
+  }, [user?.id, user?.profileCompleted, user?.displayName, user?.birthDate, user?.gender]);
 
   // Efecto unificado para manejar todas las redirecciones
   useEffect(() => {
@@ -165,7 +175,7 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
         console.log('AuthGuard: Timeout de seguridad alcanzado, forzando estado de carga');
         setShowTimeoutMessage(true);
       }
-    }, config.TIMEOUTS.SAFETY_TIMEOUT);
+    }, config.TIMEOUTS.SAFETY_TIMEOUT * 1.5); // Aumentar el timeout de seguridad en un 50%
 
     return () => clearTimeout(safetyTimer);
   }, [isLoading, config.TIMEOUTS.SAFETY_TIMEOUT]);

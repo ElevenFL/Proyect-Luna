@@ -1,8 +1,8 @@
-import { AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus, DeviceEventEmitter } from 'react-native';
 import ApiService from './apiService';
 import cacheService from './cacheService';
-import socketService from './socketService';
-import { ChatMessage } from './chatService';
+import { socketService } from './socketService';
+import { ChatMessage } from './optimizedChatService';
 
 interface ConversationInfo {
   conversationId: string;
@@ -25,7 +25,7 @@ interface BackgroundSyncConfig {
  */
 class BackgroundSyncService {
   private conversations: Map<string, ConversationInfo> = new Map();
-  private syncTimer: NodeJS.Timeout | null = null;
+  private syncTimer: number | null = null;
   private isRunning = false;
   private currentUserId: string | null = null;
   private appState: AppStateStatus = 'active';
@@ -173,6 +173,9 @@ class BackgroundSyncService {
       // Solo loggear si hay conversaciones nuevas o es la primera carga
       if (conversations.length > 0) {
         console.log(`📋 BackgroundSync: Cargadas ${conversations.length} conversaciones`);
+        
+        // Emitir evento para que ConversationContext se actualice
+        DeviceEventEmitter.emit('conversationsLoaded', { conversations });
       }
     } catch (error) {
       console.error('Error cargando conversaciones para sincronización:', error);

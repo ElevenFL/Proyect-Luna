@@ -12,15 +12,15 @@ export default function UserProfileScreen() {
   
   // Parsear los datos del usuario de los parámetros
   const user = {
-    id: params.id as string,
-    name: params.name as string,
-    age: parseInt(params.age as string),
-    gender: params.gender as string,
-    profileImage: params.profileImage as string,
-    country: params.country as string,
-    countryFlag: params.countryFlag as string,
+    id: params.id as string || 'unknown',
+    name: params.name as string || 'Usuario',
+    age: parseInt(params.age as string) || 0,
+    gender: params.gender as string || 'other',
+    profileImage: params.profileImage as string || '',
+    country: params.country as string || 'Unknown',
+    countryFlag: params.countryFlag as string || '🌍',
     isOnline: params.isOnline === 'true',
-    description: params.description as string,
+    description: params.description as string || 'Usuario de Luna',
   };
 
   // Estados para acciones
@@ -52,6 +52,7 @@ export default function UserProfileScreen() {
   };
 
   const getInitials = (name: string) => {
+    if (!name || typeof name !== 'string') return 'U';
     return name
       .split(' ')
       .map(word => word.charAt(0))
@@ -155,10 +156,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginTop: 72,
     backgroundColor: '#141414',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
+    boxShadow: '0 6px 12px rgba(0, 0, 0, 0.35)',
     elevation: 8,
   },
   profileImage: {

@@ -4,476 +4,162 @@ import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-g
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
-import chatService, { Conversation } from '@/services/chatService';
+import { useChat } from '@/contexts/ChatProvider';
 
-interface ConversationItem extends Conversation {
-  otherUserId: string;
-  otherUser?: any;
-  otherUserName?: string;
-  isOnline?: boolean;
-  lastSeen?: string;
-  avatarUrl?: string;
-  age?: number | null;
-  gender?: 'male' | 'female' | 'other';
-  country?: string;
-  countryFlag?: string;
-  description?: string;
-  lastConnection?: string;
-  unreadCount?: number;
-  // Información adicional del usuario
-  username?: string;
-  email?: string;
-  profileCompleted?: boolean;
-  birthDate?: string;
-  location?: any;
+interface ConversationItem {
+  conversationId: string;
+  otherUser: {
+    id: string;
+    name: string;
+    profileImage?: string;
+    isOnline?: boolean;
+    lastSeen?: string;
+    age?: number;
+    gender?: 'male' | 'female' | 'other';
+    country?: string;
+    countryFlag?: string;
+  };
+  lastMessagePreview?: string;
+  lastActivity: Date;
+  unreadCount: number;
+  isTyping: boolean;
 }
 
-export default function MessagesScreen() {
+export default function GlobalMessagesScreen() {
   const { user } = useAuth();
-  const [conversations, setConversations] = useState<ConversationItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { 
+    activeChats, 
+    isGlobalLoading, 
+    refreshChats, 
+    preloadChat, 
+    getUnreadCount,
+    openChat
+  } = useChat();
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [hiddenConversations, setHiddenConversations] = useState<Set<string>>(new Set());
-  const [hasPreloaded, setHasPreloaded] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(false);
+  const [localLoading, setLocalLoading] = useState(true);
 
-  // Función para precargar mensajes de conversaciones importantes (solo una vez)
-  const preloadConversationMessages = useCallback(async (conversations: ConversationItem[]) => {
-    if (!user?.id || conversations.length === 0 || hasPreloaded) return;
+  // Convertir chats activos a formato de conversaciones para la UI
+  const conversations: ConversationItem[] = React.useMemo(() => {
+    const convArray: ConversationItem[] = [];
     
-    try {
-      // Marcar como precargado para evitar ejecuciones repetitivas
-      setHasPreloaded(true);
-      
-      // 1. Primero precargar conversaciones de alta prioridad (basadas en uso histórico)
-      await chatService.preloadHighPriorityConversations();
-      
-      // 2. Luego precargar las 5 conversaciones más recientes (reducido para mejor rendimiento)
-      const conversationsToPreload = conversations
-        .sort((a, b) => new Date(b.lastMessageAt || b.updatedAt).getTime() - new Date(a.lastMessageAt || a.updatedAt).getTime())
-        .slice(0, 5);
-      
-      if (conversationsToPreload.length > 0) {
-        console.log(`🚀 Precargando ${conversationsToPreload.length} conversaciones recientes`);
-      }
-      
-      // Precargar mensajes en paralelo para las conversaciones más importantes
-      const preloadPromises = conversationsToPreload.map(async (conversation) => {
-        try {
-          // Verificar si ya está en caché
-          const isLoaded = await chatService.isConversationLoaded(conversation.conversationId);
-          if (isLoaded) {
-            console.log(`✅ Conversación ${conversation.conversationId} ya está precargada`);
-            return; // Ya está precargada, no hacer nada
-          }
-          
-          console.log(`🔄 Precargando mensajes para conversación ${conversation.conversationId}`);
-          
-          // OPTIMIZACIÓN: Precargar solo los últimos 20 mensajes para mejor rendimiento
-          const result = await chatService.getMessages(conversation.conversationId, { limit: 20 });
-          
-          // Marcar explícitamente como cargada para asegurar que se detecte
-          await chatService.markConversationAsLoaded(conversation.conversationId);
-          
-          console.log(`✅ Precargados ${result.items?.length || 0} mensajes para conversación ${conversation.conversationId}`);
-        } catch (error) {
-          console.error(`❌ Error precargando conversación ${conversation.conversationId}:`, error);
-        }
-      });
-      
-      // Ejecutar precarga en paralelo
-      await Promise.allSettled(preloadPromises);
-      
-      console.log('🎉 Precarga de conversaciones completada');
-      
-    } catch (error) {
-      console.error('❌ Error en precarga de conversaciones:', error);
-    }
-  }, [user?.id, hasPreloaded]);
-
-  // Función para cargar conversaciones desde el servidor
-  const loadConversationsFromServer = useCallback(async (): Promise<ConversationItem[]> => {
-    if (!user?.id) return [];
-    
-    try {
-      const result = await chatService.getConversations({ limit: 20 });
-      const items = result?.items || [];
-      
-      if (items.length === 0) {
-        return [];
-      }
-      
-      // Procesar conversaciones reales - el backend ya incluye otherUserId y otherUser
-      const processedConversations: ConversationItem[] = items
-        .filter((conv: any) => {
-          const conversationId = conv.conversationId?.S || conv.conversationId;
-          const otherUserId = conv.otherUserId?.S || conv.otherUserId;
-          
-          // Verificar que la conversación tenga un otherUserId válido
-          if (!otherUserId) {
-            return false;
-          }
-          
-          // Verificar que el otherUserId no sea el usuario actual
-          if (user?.id && String(otherUserId) === String(user.id)) {
-            return false;
-          }
-          
-          return true;
-        })
-        .map((conv: any) => {
-          const conversationId = conv.conversationId?.S || conv.conversationId;
-          const lastMessagePreview = conv.lastMessagePreview?.S || conv.lastMessagePreview;
-          const lastMessageAt = conv.lastMessageAt?.S || conv.lastMessageAt;
-          const createdAt = conv.createdAt?.S || conv.createdAt;
-          const updatedAt = conv.updatedAt?.S || conv.updatedAt;
-          const otherUserId = conv.otherUserId?.S || conv.otherUserId;
-          
-          return {
-            conversationId: conversationId,
-            participants: [user?.id || '', otherUserId], // Reconstruir participantes
-            createdAt: createdAt,
-            updatedAt: updatedAt,
-            lastMessagePreview: lastMessagePreview,
-            lastMessageAt: lastMessageAt,
-            otherUserId: otherUserId,
-            otherUserName: conv.otherUser?.name || conv.otherUser?.username || generateFriendlyName(otherUserId, conv.otherUser),
-            isOnline: conv.otherUser?.isOnline || false,
-            lastSeen: conv.otherUser?.lastSeen || conv.otherUser?.lastConnection || 'unknown',
-            avatarUrl: conv.otherUser?.profileImage,
-            age: conv.otherUser?.age || null,
-            gender: conv.otherUser?.gender || 'other',
-            country: conv.otherUser?.country || 'Unknown',
-            countryFlag: conv.otherUser?.countryFlag || '🌍',
-            description: conv.otherUser?.description || 'Usuario de Luna',
-            lastConnection: conv.otherUser?.lastConnection || lastMessageAt,
-            unreadCount: conv.unreadCount || 0,
-            // Información adicional del usuario
-            username: conv.otherUser?.username,
-            email: conv.otherUser?.email,
-            profileCompleted: conv.otherUser?.profileCompleted || false,
-            birthDate: conv.otherUser?.birthDate,
-            location: conv.otherUser?.location
-          };
+    for (const [conversationId, chat] of activeChats) {
+      if (!hiddenConversations.has(conversationId)) {
+        // Obtener último mensaje
+        const lastMessage = chat.messages[0]; // Los mensajes están ordenados más recientes primero
+        
+        convArray.push({
+          conversationId,
+          otherUser: chat.otherUser,
+          lastMessagePreview: lastMessage?.content || 'Iniciar conversación...',
+          lastActivity: chat.lastActivity,
+          unreadCount: chat.unreadCount,
+          isTyping: chat.isTyping
         });
-      
-      return processedConversations;
-    } catch (error) {
-      console.error('❌ Error cargando conversaciones desde servidor:', error);
-      return [];
-    }
-  }, []);
-
-  // Función para cargar conversaciones desde caché
-  const loadConversationsFromCache = useCallback(async (): Promise<ConversationItem[]> => {
-    try {
-      // Intentar cargar conversaciones desde caché local primero
-      const cacheInfo = await chatService.getCacheInfo();
-      const cachedConversationIds = Object.keys(cacheInfo);
-      
-      if (cachedConversationIds.length === 0) {
-        console.log('📭 No hay conversaciones en caché, cargando desde servidor...');
-        return await loadConversationsFromServer();
       }
-
-      // Si hay conversaciones en caché, intentar cargar desde servidor para obtener datos actualizados
-      // pero mostrar las del caché inmediatamente
-      const serverConversations = await loadConversationsFromServer();
-      return serverConversations;
-      
-    } catch (error) {
-      console.error('❌ Error cargando conversaciones desde caché:', error);
-      // Fallback: cargar desde servidor
-      return await loadConversationsFromServer();
     }
-  }, [loadConversationsFromServer]);
-
-  // Función para precargar los últimos 10 mensajes de cada conversación desde caché
-  const preloadLastMessagesFromCache = useCallback(async (conversations: ConversationItem[]) => {
-    try {
-      const preloadPromises = conversations.map(async (conversation) => {
-        try {
-          // Verificar si ya tiene mensajes en caché
-          const hasCachedMessages = await chatService.getCachedMessagesWithState(conversation.conversationId);
-          
-          if (hasCachedMessages.messages.length === 0) {
-            // Si no hay mensajes en caché, cargar los últimos 10 desde el servidor
-            console.log(`📥 Cargando últimos 10 mensajes para conversación ${conversation.conversationId}`);
-            await chatService.getMessages(conversation.conversationId, { limit: 10 });
-          } else {
-            console.log(`✅ Conversación ${conversation.conversationId} ya tiene ${hasCachedMessages.messages.length} mensajes en caché`);
-          }
-        } catch (error) {
-          console.error(`❌ Error precargando mensajes para conversación ${conversation.conversationId}:`, error);
-        }
-      });
-      
-      await Promise.allSettled(preloadPromises);
-      console.log('✅ Precarga de mensajes desde caché completada');
-      
-    } catch (error) {
-      console.error('❌ Error en precarga de mensajes desde caché:', error);
-    }
-  }, []);
-
-  // Función para sincronizar con el servidor en segundo plano (solo nuevos mensajes)
-  const syncWithServerInBackground = useCallback(async (conversations: ConversationItem[]) => {
-    try {
-      // Sincronizar cada conversación para obtener solo mensajes nuevos
-      const syncPromises = conversations.map(async (conversation) => {
-        try {
-          console.log(`🔄 Sincronizando incrementalmente conversación ${conversation.conversationId}...`);
-          
-          // Usar la nueva función de sincronización incremental
-          const syncResult = await chatService.syncConversationIncremental(conversation.conversationId);
-          
-          if (syncResult.newMessagesCount > 0) {
-            console.log(`📨 Sincronizados ${syncResult.newMessagesCount} mensajes nuevos para conversación ${conversation.conversationId}`);
-          } else {
-            console.log(`✅ Conversación ${conversation.conversationId} ya está sincronizada`);
-          }
-        } catch (error) {
-          console.error(`❌ Error sincronizando conversación ${conversation.conversationId}:`, error);
-        }
-      });
-      
-      await Promise.allSettled(syncPromises);
-      console.log('✅ Sincronización incremental en segundo plano completada');
-      
-    } catch (error) {
-      console.error('❌ Error en sincronización en segundo plano:', error);
-    }
-  }, []);
-
-  // Función para cargar conversaciones desde caché primero, luego sincronizar
-  const loadConversations = useCallback(async (forceSync = false) => {
-    if (!user?.id) return;
     
-    setIsInitializing(true);
-    try {
-      // Solo inicializar chat si no está conectado
-      const status = chatService.getConnectionStatus();
-      if (!status.isConnected) {
-        await chatService.initializeChat(user.id);
-      }
+    // Ordenar por actividad más reciente
+    return convArray.sort((a, b) => 
+      new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime()
+    );
+  }, [activeChats, hiddenConversations]);
 
-      // PASO 1: Cargar conversaciones desde caché (instantáneo)
-      console.log('🚀 Cargando conversaciones desde caché...');
-      const cachedConversations = await loadConversationsFromCache();
-      
-      if (cachedConversations.length > 0) {
-        console.log(`✅ Cargadas ${cachedConversations.length} conversaciones desde caché`);
-        setConversations(cachedConversations);
-      }
-
-      // PASO 2: Cargar los 10 últimos mensajes de cada conversación activa desde caché
-      if (cachedConversations.length > 0) {
-        console.log('📱 Precargando últimos 10 mensajes de cada conversación desde caché...');
-        await preloadLastMessagesFromCache(cachedConversations);
-      }
-
-      // PASO 3: Sincronizar con el servidor en segundo plano (solo nuevos mensajes)
-      console.log('🔄 Iniciando sincronización con servidor en segundo plano...');
-      syncWithServerInBackground(cachedConversations);
-      
-    } catch (error) {
-      console.error('❌ Error cargando conversaciones:', error);
-      console.error('📋 Detalles del error:', {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        user: user?.id
-      });
-    } finally {
-      setIsInitializing(false);
-    }
-  }, [user?.id, loadConversationsFromCache, preloadLastMessagesFromCache, syncWithServerInBackground]);
-
-  // Función para sincronizar conversaciones cuando la pantalla recibe foco
-  const syncConversationsOnFocus = useCallback(async () => {
-    if (!user?.id) return;
+  // Filtrar conversaciones por búsqueda
+  const filteredConversations = React.useMemo(() => {
+    if (!searchQuery.trim()) return conversations;
     
-    try {
-      // Solo sincronizar en segundo plano, no recargar toda la pantalla
-      console.log('🔄 Sincronización rápida al recibir foco...');
-      
-      // Obtener conversaciones actuales usando una función de estado
-      setConversations(currentConversations => {
-        if (currentConversations.length > 0) {
-          // Sincronizar solo mensajes nuevos en segundo plano
-          syncWithServerInBackground(currentConversations);
-        } else {
-          // Si no hay conversaciones, cargar desde servidor
-          loadConversations(true);
-        }
-        return currentConversations; // No cambiar el estado, solo leerlo
-      });
-    } catch (error) {
-      console.error('❌ Error sincronizando conversaciones:', error);
-    }
-  }, [user?.id, syncWithServerInBackground, loadConversations]);
+    const query = searchQuery.toLowerCase();
+    return conversations.filter(conv => 
+      conv.otherUser.name.toLowerCase().includes(query) ||
+      (conv.lastMessagePreview?.toLowerCase().includes(query))
+    );
+  }, [conversations, searchQuery]);
 
-  // Listener para cuando la pantalla recibe foco
+  // Cargar inicial
+  useEffect(() => {
+    const loadInitial = async () => {
+      try {
+        if (!user?.id) return;
+        
+        setLocalLoading(true);
+        console.log('🚀 GlobalMessages: Cargando mensajes globales');
+        
+        // El ChatProvider ya maneja la carga inicial
+        // Solo esperamos un momento para que se inicialice
+        setTimeout(() => {
+          setLocalLoading(false);
+        }, 1000);
+        
+      } catch (error) {
+        console.error('❌ GlobalMessages: Error en carga inicial:', error);
+        setLocalLoading(false);
+      }
+    };
+
+    loadInitial();
+  }, [user?.id]);
+
+  // Refrescar cuando la pantalla recibe foco (con restricciones)
   useFocusEffect(
     useCallback(() => {
-      // Throttle para evitar ejecuciones excesivas
-      const timeoutId = setTimeout(() => {
-        syncConversationsOnFocus();
-      }, 500); // 500ms de delay
-      
-      return () => clearTimeout(timeoutId);
-    }, [syncConversationsOnFocus])
+      if (user?.id) {
+        console.log('🔄 GlobalMessages: Foco recibido');
+        // Solo refrescar si han pasado más de 30 segundos desde la última carga
+        // El ChatProvider ya maneja su propio refresco automático
+      }
+    }, [user?.id])
   );
 
-  // Carga inicial de conversaciones
-  useEffect(() => {
-    const loadInitialConversations = async () => {
-      if (!user?.id) return;
-      
-      // Reset del flag de precarga cuando cambia el usuario
-      setHasPreloaded(false);
-      
-      setLoading(true);
-      try {
-        await loadConversations(false);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadInitialConversations();
-  }, [user?.id]); // Removemos loadConversations de las dependencias
-
-  // Escuchar nuevos mensajes para mostrar conversaciones ocultas
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const handleNewMessage = (message: any) => {
-      // Verificar si el mensaje es relevante para el usuario actual
-      // (ya sea que lo recibió O lo envió)
-      const isRelevantMessage = message.receiverId === user.id || message.senderId === user.id;
-      
-      if (!isRelevantMessage) {
-        return;
-      }
-      
-      // Si el mensaje es de una conversación oculta, la mostramos de nuevo
-      // Usamos una función callback para acceder al estado más reciente
-      if (message.conversationId) {
-        setHiddenConversations(prev => {
-          if (prev.has(message.conversationId)) {
-            const newSet = new Set(prev);
-            newSet.delete(message.conversationId);
-            return newSet;
-          }
-          return prev;
-        });
-      }
-    };
-
-    // Agregar listener para nuevos mensajes
-    chatService.onNewMessage(handleNewMessage);
-
-    // Cleanup al desmontar el componente
-    return () => {
-      chatService.offNewMessage(handleNewMessage);
-    };
-  }, [user?.id]); // Removemos hiddenConversations de las dependencias
-
+  // Navegar a chat
   const handleConversationPress = async (conversation: ConversationItem) => {
     try {
-      // Registrar acceso a la conversación para mejorar la precarga
-      await chatService.recordConversationAccess(conversation.conversationId);
+      console.log(`🚀 GlobalMessages: Navegando a chat con ${conversation.otherUser.id}`);
       
-      // Verificar si ya está precargada
-      const isLoaded = await chatService.isConversationLoaded(conversation.conversationId);
+      // Precargar en paralelo con la navegación
+      preloadChat(conversation.otherUser.id, conversation.otherUser).catch((error) => {
+        console.error(`❌ Error en precarga para ${conversation.otherUser.id}:`, error);
+      });
       
-      if (!isLoaded) {
-        // Precargar mensajes en paralelo con la navegación (solo los últimos 20)
-        console.log(`🚀 Precargando últimos 20 mensajes para conversación ${conversation.conversationId} antes de navegar`);
-        const preloadPromise = chatService.getMessages(conversation.conversationId, { limit: 20 });
-        
-        // Navegar inmediatamente, la precarga continuará en segundo plano
-        router.push({ 
-          pathname: '/chat/[userId]', 
-          params: { 
-            userId: conversation.otherUserId,
-            userName: conversation.otherUserName || 'Usuario',
-            userImage: conversation.avatarUrl || '',
-            userAge: conversation.age?.toString() || '',
-            userGender: conversation.gender || 'other',
-            userCountry: conversation.country || 'Unknown',
-            userCountryFlag: conversation.countryFlag || '🌍',
-            isOnline: conversation.isOnline?.toString() || 'false'
-          } 
-        });
-        
-        // Esperar a que termine la precarga y marcar como cargada
-        preloadPromise.then(async (result) => {
-          console.log(`✅ Precarga completada para conversación ${conversation.conversationId}: ${result.items?.length || 0} mensajes`);
-          // Marcar explícitamente como cargada para asegurar detección
-          await chatService.markConversationAsLoaded(conversation.conversationId);
-        }).catch((error) => {
-          console.error(`❌ Error en precarga para conversación ${conversation.conversationId}:`, error);
-        });
-      } else {
-        // Ya está precargada, navegar directamente
-        console.log(`✅ Conversación ${conversation.conversationId} ya está precargada, navegando directamente`);
-        router.push({ 
-          pathname: '/chat/[userId]', 
-          params: { 
-            userId: conversation.otherUserId,
-            userName: conversation.otherUserName || 'Usuario',
-            userImage: conversation.avatarUrl || '',
-            userAge: conversation.age?.toString() || '',
-            userGender: conversation.gender || 'other',
-            userCountry: conversation.country || 'Unknown',
-            userCountryFlag: conversation.countryFlag || '🌍',
-            isOnline: conversation.isOnline?.toString() || 'false'
-          } 
-        });
-      }
-    } catch (error) {
-      console.error('Error precargando mensajes antes de navegar:', error);
-      // Navegar de todas formas en caso de error
+      // Navegar inmediatamente
       router.push({ 
         pathname: '/chat/[userId]', 
         params: { 
-          userId: conversation.otherUserId,
-          userName: conversation.otherUserName || 'Usuario',
-          userImage: conversation.avatarUrl || '',
-          userAge: conversation.age?.toString() || '',
-          userGender: conversation.gender || 'other',
-          userCountry: conversation.country || 'Unknown',
-          userCountryFlag: conversation.countryFlag || '🌍',
-          isOnline: conversation.isOnline?.toString() || 'false'
+          userId: conversation.otherUser.id,
+          userName: conversation.otherUser.name,
+          userImage: conversation.otherUser.profileImage || '',
+          userAge: conversation.otherUser.age?.toString() || '',
+          userGender: conversation.otherUser.gender || 'other',
+          userCountry: conversation.otherUser.country || 'Unknown',
+          userCountryFlag: conversation.otherUser.countryFlag || '🌍',
+          isOnline: conversation.otherUser.isOnline?.toString() || 'false'
         } 
       });
+    } catch (error) {
+      console.error('❌ GlobalMessages: Error navegando a chat:', error);
     }
   };
 
+  // Ocultar conversación
   const handleHideConversation = (conversationId: string) => {
     setHiddenConversations(prev => new Set([...prev, conversationId]));
   };
 
+  // Funciones auxiliares
   const getGenderIcon = (gender?: string) => {
     switch (gender) {
-      case 'male':
-        return '♂';
-      case 'female':
-        return '♀';
-      default:
-        return '⚧';
+      case 'male': return '♂';
+      case 'female': return '♀';
+      default: return '⚧';
     }
   };
 
   const getGenderColor = (gender?: string) => {
     switch (gender) {
-      case 'male':
-        return '#4A90E2';
-      case 'female':
-        return '#E24A90';
-      default:
-        return '#FFD700';
+      case 'male': return '#4A90E2';
+      case 'female': return '#E24A90';
+      default: return '#FFD700';
     }
   };
 
@@ -488,32 +174,10 @@ export default function MessagesScreen() {
     return initials || 'U';
   };
 
-  const generateFriendlyName = (userId: string, userData?: any) => {
-    if (!userId) return 'Usuario';
-    
-    // Si tenemos información del usuario, usar su nombre real
-    if (userData?.name && userData.name !== `Usuario ${userId.slice(-4)}`) {
-      return userData.name;
-    }
-    
-    if (userData?.username && userData.username !== `user_${userId.slice(-4)}`) {
-      return userData.username;
-    }
-    
-    // Si no hay información real, generar un nombre amigable
-    const lastFour = userId.slice(-4);
-    const names = ['Alex', 'Sam', 'Jordan', 'Taylor', 'Casey', 'Riley', 'Morgan', 'Avery', 'Quinn', 'Blake'];
-    const index = parseInt(lastFour, 16) % names.length;
-    
-    return `${names[index]} ${lastFour}`;
-  };
-
-  const getTimeAgo = (dateString: string) => {
-    if (!dateString) return 'Offline';
+  const getTimeAgo = (date: Date) => {
     try {
       const now = new Date();
-      const lastSeen = new Date(dateString);
-      const diffMs = now.getTime() - lastSeen.getTime();
+      const diffMs = now.getTime() - date.getTime();
       
       const diffMinutes = Math.floor(diffMs / (1000 * 60));
       const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
@@ -527,10 +191,11 @@ export default function MessagesScreen() {
         return diffDays === 1 ? 'Hace 1 día' : `Hace ${diffDays} días`;
       }
     } catch (error) {
-      return 'Offline';
+      return 'Ahora';
     }
   };
 
+  // Componente de conversación con gesto deslizable
   const SwipeableConversationItem = ({ item }: { item: ConversationItem }) => {
     const translateX = new Animated.Value(0);
     const opacity = new Animated.Value(1);
@@ -544,9 +209,7 @@ export default function MessagesScreen() {
       if (event.nativeEvent.state === State.END) {
         const { translationX, velocityX } = event.nativeEvent;
         
-        // Si se desliza más de 100px hacia la izquierda o con velocidad alta hacia la izquierda
         if (translationX < -100 || velocityX < -500) {
-          // Animar hacia la izquierda y desvanecer
           Animated.parallel([
             Animated.timing(translateX, {
               toValue: -300,
@@ -562,7 +225,6 @@ export default function MessagesScreen() {
             handleHideConversation(item.conversationId);
           });
         } else {
-          // Volver a la posición original
           Animated.spring(translateX, {
             toValue: 0,
             useNativeDriver: true,
@@ -583,10 +245,7 @@ export default function MessagesScreen() {
         <Animated.View
           style={[
             styles.swipeableContainer,
-            {
-              transform: [{ translateX }],
-              opacity,
-            },
+            { transform: [{ translateX }], opacity },
           ]}
         >
           <TouchableOpacity 
@@ -597,57 +256,54 @@ export default function MessagesScreen() {
             <View style={styles.content}>
               {/* Profile Picture */}
               <View style={styles.profileContainer}>
-                {item.avatarUrl ? (
-                  <View style={styles.profileImage}>
-                    <Text style={styles.avatarText}>
-                      {item.otherUserName && typeof item.otherUserName === 'string' ? item.otherUserName.charAt(0).toUpperCase() : 'U'}
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.profilePlaceholder}>
-                    <Text style={styles.initialsText}>
-                      {item.otherUserName && typeof item.otherUserName === 'string' ? getInitials(item.otherUserName) : 'U'}
-                    </Text>
-                  </View>
-                )}
+                <View style={styles.profilePlaceholder}>
+                  <Text style={styles.initialsText}>
+                    {getInitials(item.otherUser.name)}
+                  </Text>
+                </View>
                 
                 {/* Online Status Indicator */}
                 <View style={[
                   styles.statusIndicator,
-                  { backgroundColor: item.isOnline ? '#4CAF50' : '#666666' }
+                  { backgroundColor: item.otherUser.isOnline ? '#4CAF50' : '#666666' }
                 ]} />
               </View>
 
               {/* User Info */}
               <View style={styles.userInfo}>
                 <View style={styles.nameRow}>
-                  <Text style={styles.userName}>{String(item.otherUserName || 'Usuario')}</Text>
+                  <Text style={styles.userName}>{item.otherUser.name}</Text>
                   <View style={styles.genderAgeContainer}>
-                    <Text style={[styles.genderIcon, { color: getGenderColor(item.gender) }]}>
-                      {String(getGenderIcon(item.gender) || '⚧')}
+                    <Text style={[styles.genderIcon, { color: getGenderColor(item.otherUser.gender) }]}>
+                      {getGenderIcon(item.otherUser.gender)}
                     </Text>
-                    <Text style={styles.age}>{item.age ? String(item.age) : '?'}</Text>
-                    <Text style={styles.countryFlag}>{String(item.countryFlag || '🌍')}</Text>
+                    <Text style={styles.age}>{item.otherUser.age || '?'}</Text>
+                    <Text style={styles.countryFlag}>{item.otherUser.countryFlag || '🌍'}</Text>
                   </View>
                 </View>
                 
-                <Text style={styles.description} numberOfLines={2}>
-                  {String(item.lastMessagePreview || 'Iniciar conversación...')}
-                </Text>
+                <View style={styles.messageRow}>
+                  <Text style={styles.lastMessage} numberOfLines={1}>
+                    {item.lastMessagePreview}
+                  </Text>
+                  {item.isTyping && (
+                    <Text style={styles.typingIndicator}>escribiendo...</Text>
+                  )}
+                </View>
               </View>
 
-              {/* Online Status and Unread Messages */}
+              {/* Status and Unread */}
               <View style={styles.statusContainer}>
-                <Text style={[styles.statusText, { color: item.isOnline ? '#4CAF50' : '#ADB5BD' }]}>
-                  {String(item.isOnline ? 'Online' : (item.lastConnection ? getTimeAgo(item.lastConnection) : 'Offline'))}
+                <Text style={[styles.statusText, { color: item.otherUser.isOnline ? '#4CAF50' : '#ADB5BD' }]}>
+                  {item.otherUser.isOnline ? 'Online' : getTimeAgo(item.lastActivity)}
                 </Text>
-                {(item.unreadCount && item.unreadCount > 0) ? (
+                {item.unreadCount > 0 && (
                   <View style={styles.unreadBadge}>
                     <Text style={styles.unreadText}>
-                      {item.unreadCount > 99 ? '99+' : String(item.unreadCount)}
+                      {item.unreadCount > 99 ? '99+' : item.unreadCount.toString()}
                     </Text>
                   </View>
-                ) : null}
+                )}
               </View>
             </View>
           </TouchableOpacity>
@@ -660,16 +316,13 @@ export default function MessagesScreen() {
     return <SwipeableConversationItem item={item} />;
   };
 
-  if (loading) {
+  if (localLoading || isGlobalLoading) {
     return (
       <GestureHandlerRootView style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#000000" />
-        <View style={styles.statusBar}>
-          <Text style={styles.timeText}>Loading...</Text>
-        </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#F9C80E" />
-          <Text style={styles.loadingText}>Loading chats...</Text>
+          <Text style={styles.loadingText}>Cargando chats...</Text>
         </View>
       </GestureHandlerRootView>
     );
@@ -679,7 +332,6 @@ export default function MessagesScreen() {
     <GestureHandlerRootView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
       
-
       {/* Sección de avatares */}
       <View style={styles.avatarsSection}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.avatarsContainer}>
@@ -687,17 +339,32 @@ export default function MessagesScreen() {
             <Ionicons name="add" size={20} color="#000000" />
           </TouchableOpacity>
           
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarCircleText}>👩</Text>
-          </View>
-          
-          <View style={styles.avatarWithInitials}>
-            <Text style={styles.avatarInitialsText}>SA</Text>
-          </View>
-          
-          <TouchableOpacity style={styles.groupButton}>
-            <Ionicons name="people" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
+          {/* Mostrar primeros usuarios de chats activos */}
+          {Array.from(activeChats.values()).slice(0, 4).map((chat, index) => (
+            <TouchableOpacity 
+              key={chat.conversationId}
+              style={styles.avatarCircle}
+              onPress={() => handleConversationPress({
+                conversationId: chat.conversationId,
+                otherUser: chat.otherUser,
+                lastMessagePreview: chat.messages[0]?.content,
+                lastActivity: chat.lastActivity,
+                unreadCount: chat.unreadCount,
+                isTyping: chat.isTyping
+              })}
+            >
+              <Text style={styles.avatarInitialsText}>
+                {getInitials(chat.otherUser.name)}
+              </Text>
+              {chat.unreadCount > 0 && (
+                <View style={styles.avatarBadge}>
+                  <Text style={styles.avatarBadgeText}>
+                    {chat.unreadCount > 9 ? '9+' : chat.unreadCount.toString()}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
         </ScrollView>
       </View>
 
@@ -705,7 +372,7 @@ export default function MessagesScreen() {
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
-          placeholder="Search for a chat..."
+          placeholder="Buscar conversación..."
           placeholderTextColor="#888888"
           value={searchQuery}
           onChangeText={setSearchQuery}
@@ -713,22 +380,47 @@ export default function MessagesScreen() {
         <Ionicons name="search" size={20} color="#F9C80E" style={styles.searchIcon} />
       </View>
 
+      {/* Contador de mensajes no leídos */}
+      {getUnreadCount() > 0 && (
+        <View style={styles.unreadCountContainer}>
+          <Text style={styles.unreadCountText}>
+            {getUnreadCount()} mensaje{getUnreadCount() > 1 ? 's' : ''} sin leer
+          </Text>
+        </View>
+      )}
+
       {/* Lista de conversaciones */}
-      {conversations.length === 0 ? (
+      {filteredConversations.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Ionicons name="chatbubbles-outline" size={64} color="#444" />
-          <Text style={styles.emptyTitle}>No hay conversaciones</Text>
+          <Text style={styles.emptyTitle}>
+            {searchQuery ? 'No se encontraron conversaciones' : 'No hay conversaciones'}
+          </Text>
           <Text style={styles.emptySubtitle}>
-            Ve a un perfil y toca el ícono de mensaje para iniciar un chat
+            {searchQuery 
+              ? 'Intenta con otros términos de búsqueda'
+              : 'Ve a un perfil y toca el ícono de mensaje para iniciar un chat'
+            }
           </Text>
         </View>
       ) : (
         <FlatList
-          data={conversations.filter(conv => !hiddenConversations.has(conv.conversationId))}
-          keyExtractor={(item) => item.conversationId || `conversation-${Math.random()}`}
+          data={filteredConversations}
+          keyExtractor={(item) => item.conversationId}
           renderItem={renderConversation}
           contentContainerStyle={styles.listContainer}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          windowSize={8}
+          initialNumToRender={15}
+          getItemLayout={(data, index) => ({
+            length: 80,
+            offset: 80 * index,
+            index,
+          })}
+          refreshing={isGlobalLoading}
+          onRefresh={refreshChats}
         />
       )}
     </GestureHandlerRootView>
@@ -739,26 +431,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1a1a1a',
-  },
-  statusBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 50,
-    paddingBottom: 10,
-  },
-  timeText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  statusIcons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusIcon: {
-    marginLeft: 4,
   },
   avatarsSection: {
     marginTop: 50,
@@ -782,41 +454,39 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 16,
-    backgroundColor: '#333333',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  avatarCircleText: {
-    fontSize: 20,
-  },
-  avatarWithInitials: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
     backgroundColor: '#F9C80E',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    position: 'relative',
   },
   avatarInitialsText: {
     fontSize: 14,
     fontWeight: '700',
     color: '#000000',
   },
-  groupButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: '#333333',
+  avatarBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#FF3B30',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  avatarBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '600',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: 20,
-    marginBottom: 20,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: '#F9C80E',
     borderRadius: 16,
@@ -831,6 +501,20 @@ const styles = StyleSheet.create({
   },
   searchIcon: {
     marginLeft: 10,
+  },
+  unreadCountContainer: {
+    backgroundColor: '#F9C80E',
+    marginHorizontal: 20,
+    marginBottom: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  unreadCountText: {
+    color: '#000000',
+    fontSize: 14,
+    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,
@@ -854,6 +538,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginTop: 16,
     marginBottom: 8,
+    textAlign: 'center',
   },
   emptySubtitle: {
     fontSize: 14,
@@ -879,14 +564,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     marginRight: 12,
   },
-  profileImage: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: '#F9C80E',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   profilePlaceholder: {
     width: 56,
     height: 56,
@@ -894,11 +571,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9C80E',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  avatarText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000000',
   },
   initialsText: {
     fontSize: 16,
@@ -946,10 +618,21 @@ const styles = StyleSheet.create({
   countryFlag: {
     fontSize: 16,
   },
-  description: {
+  messageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  lastMessage: {
     fontSize: 12,
     color: '#CCCCCC',
     lineHeight: 16,
+    flex: 1,
+  },
+  typingIndicator: {
+    fontSize: 12,
+    color: '#F9C80E',
+    fontStyle: 'italic',
+    marginLeft: 8,
   },
   statusContainer: {
     alignItems: 'flex-end',
