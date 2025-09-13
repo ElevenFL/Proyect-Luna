@@ -172,8 +172,10 @@ class OptimizedChatService {
             );
             
             if (newMessages.length > 0) {
+              // Los mensajes vienen en orden descendente (más recientes primero) desde el backend
+              // Para paginación hacia atrás, necesitamos añadirlos al final del caché
               cachedConv.messages.push(...newMessages);
-              // Mantener orden cronológico en caché
+              // Mantener orden cronológico en caché (más antiguos primero)
               cachedConv.messages.sort((a, b) => 
                 new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
               );
@@ -347,6 +349,52 @@ class OptimizedChatService {
   }
 
   /**
+   * Marca mensajes como leídos en el servidor
+   */
+  async markMessagesAsRead(conversationId: string, messageIds: string[]): Promise<void> {
+    try {
+      console.log(`👁️ OptimizedChat: Marcando ${messageIds.length} mensajes como leídos en conversación ${conversationId}`);
+      
+      const response = await ApiService.markMessagesAsRead(conversationId, messageIds);
+      
+      if (response.success) {
+        console.log(`✅ OptimizedChat: Mensajes marcados como leídos exitosamente`);
+        
+        // Actualizar el estado local de los mensajes
+        this.updateMessagesReadStatus(conversationId, messageIds);
+      } else {
+        console.error('❌ OptimizedChat: Error marcando mensajes como leídos:', response.error);
+      }
+    } catch (error) {
+      console.error('❌ OptimizedChat: Error marcando mensajes como leídos:', error);
+    }
+  }
+
+  /**
+   * Actualiza el estado de lectura de mensajes en el caché local
+   */
+  private updateMessagesReadStatus(conversationId: string, messageIds: string[]): void {
+    const cachedConv = this.conversations.get(conversationId);
+    if (!cachedConv) return;
+
+    let updated = false;
+    cachedConv.messages.forEach(message => {
+      if (messageIds.includes(message.messageId)) {
+        message.read = true;
+        updated = true;
+      }
+    });
+
+    if (updated) {
+      cachedConv.lastUpdated = new Date().toISOString();
+      cachedConv.version++;
+      this.conversations.set(conversationId, cachedConv);
+      this.debounceSaveToStorage();
+      console.log(`📝 OptimizedChat: Estado de lectura actualizado para ${messageIds.length} mensajes`);
+    }
+  }
+
+  /**
    * Limpia el caché de una conversación
    */
   async clearConversationCache(conversationId: string): Promise<void> {
@@ -440,7 +488,12 @@ class OptimizedChatService {
         const existingRealMessages = cachedConv?.messages.filter(m => !m.isOptimistic) || [];
         const existingOptimisticMessages = cachedConv?.messages.filter(m => m.isOptimistic) || [];
         
-        const allMessages = [...existingRealMessages, ...newMessages, ...existingOptimisticMessages]
+        // Los mensajes del servidor vienen en orden descendente, pero necesitamos orden cronológico
+        const sortedNewMessages = [...newMessages].sort((a, b) => 
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        
+        const allMessages = [...existingRealMessages, ...sortedNewMessages, ...existingOptimisticMessages]
           .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
           .slice(-this.MAX_CACHED_MESSAGES);
 
@@ -684,7 +737,12 @@ class OptimizedChatService {
       const serverMessages = response.data?.items || [];
       
       if (serverMessages.length > 0) {
-        this.updateConversationCache(conversationId, serverMessages);
+        // Los mensajes vienen en orden descendente (más recientes primero) desde el backend
+        // Para la carga inicial, los invertimos para tener el orden cronológico correcto
+        const sortedMessages = [...serverMessages].sort((a, b) => 
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        this.updateConversationCache(conversationId, sortedMessages);
         await this.saveCacheToStorage();
       }
     } catch (error) {

@@ -67,75 +67,93 @@ export class Chat {
    * Crea (si no existe) y devuelve la conversación entre dos usuarios
    */
   static async getOrCreateConversation(currentUserId, otherUserId) {
-    const conversationId = buildConversationId(currentUserId, otherUserId);
-    const PK = pkForConversation(conversationId);
-    const SK = skForConversationMeta(conversationId);
+    try {
+      console.log('🔍 Chat.getOrCreateConversation: Iniciando con:', { currentUserId, otherUserId });
+      
+      const conversationId = buildConversationId(currentUserId, otherUserId);
+      const PK = pkForConversation(conversationId);
+      const SK = skForConversationMeta(conversationId);
 
-    // Intentar leer metadata
-    const getCommand = new GetCommand({
-      TableName: TABLE_NAME,
-      Key: { PK, SK }
-    });
+      console.log('🔍 Chat.getOrCreateConversation: Keys generadas:', { conversationId, PK, SK });
 
-    const { Item } = await docClient.send(getCommand);
-    if (Item) {
-      // Deserializar si es necesario
-      const deserializedItem = Item.participants && Item.participants.L ? deserializeDynamoItem(Item) : Item;
-      return { conversationId, conversation: deserializedItem };
-    }
+      // Intentar leer metadata
+      const getCommand = new GetCommand({
+        TableName: TABLE_NAME,
+        Key: { PK, SK }
+      });
 
-    // Crear metadata de conversación
-    const now = new Date().toISOString();
-    const metaItem = {
-      PK,
-      SK,
-      entityType: 'Conversation',
-      conversationId,
-      participants: [String(currentUserId), String(otherUserId)],
-      createdAt: now,
-      updatedAt: now,
-      lastMessagePreview: '',
-      lastMessageAt: now
-    };
-
-    // Usar transacciones para atomicidad
-    const batchWrites = [];
-    
-    // Metadatos de conversación
-    batchWrites.push({
-      PutRequest: {
-        Item: metaItem
+      console.log('🔍 Chat.getOrCreateConversation: Ejecutando GetCommand...');
+      const { Item } = await docClient.send(getCommand);
+      
+      if (Item) {
+        console.log('✅ Chat.getOrCreateConversation: Conversación encontrada');
+        // Deserializar si es necesario
+        const deserializedItem = Item.participants && Item.participants.L ? deserializeDynamoItem(Item) : Item;
+        return { conversationId, conversation: deserializedItem };
       }
-    });
 
-    // Referencias por usuario
-    [String(currentUserId), String(otherUserId)].forEach((userId) => {
+      console.log('🔧 Chat.getOrCreateConversation: Creando nueva conversación...');
+      
+      // Crear metadata de conversación
+      const now = new Date().toISOString();
+      const metaItem = {
+        PK,
+        SK,
+        entityType: 'Conversation',
+        conversationId,
+        participants: [String(currentUserId), String(otherUserId)],
+        createdAt: now,
+        updatedAt: now,
+        lastMessagePreview: '',
+        lastMessageAt: now
+      };
+
+      console.log('🔧 Chat.getOrCreateConversation: Metadata creada:', metaItem);
+
+      // Usar transacciones para atomicidad
+      const batchWrites = [];
+      
+      // Metadatos de conversación
       batchWrites.push({
         PutRequest: {
-          Item: {
-            PK: `USER#${userId}`,
-            SK: skForUserConversation(conversationId),
-            entityType: 'UserConversation',
-            conversationId,
-            otherUserId: userId === String(currentUserId) ? String(otherUserId) : String(currentUserId),
-            createdAt: now,
-            updatedAt: now
-          }
+          Item: metaItem
         }
       });
-    });
 
-    // Escribir en batch para mejor rendimiento
-    if (batchWrites.length > 0) {
-      const { BatchWriteCommand } = require('@aws-sdk/lib-dynamodb');
+      // Referencias por usuario
+      [String(currentUserId), String(otherUserId)].forEach((userId) => {
+        batchWrites.push({
+          PutRequest: {
+            Item: {
+              PK: `USER#${userId}`,
+              SK: skForUserConversation(conversationId),
+              entityType: 'UserConversation',
+              conversationId,
+              otherUserId: userId === String(currentUserId) ? String(otherUserId) : String(currentUserId),
+              createdAt: now,
+              updatedAt: now
+            }
+          }
+        });
+      });
+
+      console.log('🔧 Chat.getOrCreateConversation: Ejecutando BatchWrite con', batchWrites.length, 'items');
+
+      // Usar BatchWriteCommand para mejor rendimiento (ahora que tenemos los permisos)
+      const { BatchWriteCommand } = await import('@aws-sdk/lib-dynamodb');
       await docClient.send(new BatchWriteCommand({
         RequestItems: {
           [TABLE_NAME]: batchWrites
         }
       }));
-    }
 
-    return { conversationId, conversation: metaItem };
+      console.log('✅ Chat.getOrCreateConversation: Nueva conversación creada:', conversationId);
+      return { conversationId, conversation: metaItem };
+    } catch (error) {
+      console.error('❌ Chat.getOrCreateConversation: Error:', error);
+      console.error('❌ Chat.getOrCreateConversation: Error stack:', error.stack);
+      throw error;
+    }
   }
 
   /**
@@ -207,7 +225,7 @@ export class Chat {
       },
       Limit: Math.min(limit, 100), // Máximo 100 mensajes por consulta
       ExclusiveStartKey: exclusiveStartKey,
-      ScanIndexForward: true, // ascendente por fecha
+      ScanIndexForward: false, // descendente por fecha - mensajes más recientes primero
       ProjectionExpression: 'messageId, senderId, receiverId, content, #type, createdAt, #read, entityType, conversationId',
       ExpressionAttributeNames: {
         '#type': 'type',
@@ -315,12 +333,14 @@ export class Chat {
       const metadataMap = new Map(conversationMetadata.map(meta => [meta.conversationId, meta]));
 
       // Procesar conversaciones de forma más eficiente
-      const enrichedConversations = userConversations.map(conv => {
-        const otherUser = userMap.get(conv.otherUserId);
-        const metadata = metadataMap.get(conv.conversationId);
-        
-        return this.enrichConversationData(conv, otherUser, metadata);
-      });
+      const enrichedConversations = await Promise.all(
+        userConversations.map(async conv => {
+          const otherUser = userMap.get(conv.otherUserId);
+          const metadata = metadataMap.get(conv.conversationId);
+          
+          return await this.enrichConversationData(conv, otherUser, metadata, userId);
+        })
+      );
 
       return { items: enrichedConversations, nextKey: result.LastEvaluatedKey };
     } catch (error) {
@@ -447,7 +467,7 @@ export class Chat {
   /**
    * Enriquece los datos de conversación con información del usuario y metadatos
    */
-  static enrichConversationData(conv, otherUser, metadata) {
+  static async enrichConversationData(conv, otherUser, metadata, currentUserId) {
     // Asegurar que los participants estén presentes
     let participants = [];
     if (metadata && metadata.participants && Array.isArray(metadata.participants)) {
@@ -463,6 +483,16 @@ export class Chat {
         convParticipants: conv?.participants
       });
     }
+    
+    // Calcular mensajes no leídos desde la base de datos
+    let unreadCount = 0;
+    try {
+      unreadCount = await this.getUnreadCountForUser(conv.conversationId, currentUserId);
+    } catch (error) {
+      console.error('❌ Chat: Error calculando mensajes no leídos:', error);
+      unreadCount = 0;
+    }
+    
     // Calcular edad
     let age = null;
     if (otherUser?.birthDate) {
@@ -503,6 +533,7 @@ export class Chat {
       lastMessageAt: metadata?.lastMessageAt || conv.createdAt,
       createdAt: metadata?.createdAt || conv.createdAt,
       updatedAt: metadata?.updatedAt || conv.updatedAt,
+      unreadCount: unreadCount, // Incluir contador de mensajes no leídos
       otherUser: otherUser ? {
         id: otherUser.id,
         name: otherUser.displayName || otherUser.username || `Usuario ${conv.otherUserId.slice(-4)}`,
@@ -577,6 +608,38 @@ export class Chat {
   }
 
   /**
+   * Obtiene el número de mensajes no leídos para un usuario en una conversación
+   */
+  static async getUnreadCountForUser(conversationId, userId) {
+    try {
+      const PK = pkForConversation(conversationId);
+      
+      // Consultar mensajes no leídos del otro usuario (no del usuario actual)
+      const query = new QueryCommand({
+        TableName: TABLE_NAME,
+        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :msgPrefix)',
+        FilterExpression: 'senderId <> :userId AND #read = :read',
+        ExpressionAttributeValues: {
+          ':pk': PK,
+          ':msgPrefix': 'MSG#',
+          ':userId': String(userId),
+          ':read': false
+        },
+        ExpressionAttributeNames: {
+          '#read': 'read'
+        },
+        Select: 'COUNT'
+      });
+
+      const result = await docClient.send(query);
+      return result.Count || 0;
+    } catch (error) {
+      console.error('❌ Chat: Error obteniendo contador de mensajes no leídos:', error);
+      return 0;
+    }
+  }
+
+  /**
    * Marca mensajes como leídos (batch operation)
    */
   static async markMessagesAsRead(conversationId, messageIds, userId) {
@@ -584,29 +647,42 @@ export class Chat {
 
     const PK = pkForConversation(conversationId);
     
-    // Procesar en lotes de 25 (límite de BatchWrite)
-    const batches = [];
-    for (let i = 0; i < messageIds.length; i += 25) {
-      batches.push(messageIds.slice(i, i + 25));
-    }
+    try {
+      // Obtener mensajes recientes para encontrar los que necesitamos actualizar
+      const recentMessages = await this.listMessages(conversationId, { limit: 100 });
+      const messagesToUpdate = recentMessages.items.filter(msg => 
+        messageIds.includes(msg.messageId) && !msg.read
+      );
 
-    const { BatchWriteCommand } = require('@aws-sdk/lib-dynamodb');
+      if (messagesToUpdate.length === 0) {
+        console.log('⚠️ Chat: No se encontraron mensajes no leídos para actualizar');
+        return;
+      }
 
-    for (const batch of batches) {
-      const writeRequests = batch.map(messageId => ({
-        UpdateRequest: {
-          Key: { PK, SK: `MSG#${messageId}` },
+      // Usar UpdateCommand individual para cada mensaje
+      const updatePromises = messagesToUpdate.map(message => {
+        const updateCommand = new UpdateCommand({
+          TableName: TABLE_NAME,
+          Key: { 
+            PK, 
+            SK: `MSG#${message.createdAt}#${message.messageId}` 
+          },
           UpdateExpression: 'SET #read = :read',
           ExpressionAttributeNames: { '#read': 'read' },
-          ExpressionAttributeValues: { ':read': true }
-        }
-      }));
+          ExpressionAttributeValues: { ':read': true },
+          ReturnValues: 'NONE'
+        });
 
-      await docClient.send(new BatchWriteCommand({
-        RequestItems: {
-          [TABLE_NAME]: writeRequests
-        }
-      }));
+        return docClient.send(updateCommand);
+      });
+
+      // Ejecutar todas las actualizaciones en paralelo
+      await Promise.all(updatePromises);
+
+      console.log(`✅ Chat: ${messagesToUpdate.length} mensajes marcados como leídos en conversación ${conversationId}`);
+    } catch (error) {
+      console.error('❌ Chat: Error marcando mensajes como leídos:', error);
+      throw error;
     }
   }
 }

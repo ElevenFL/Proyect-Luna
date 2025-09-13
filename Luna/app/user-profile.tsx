@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, StatusBar, TouchableOpacity, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import OptimizedImage from '@/components/OptimizedImage';
+import apiService from '@/services/apiService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -27,6 +28,46 @@ export default function UserProfileScreen() {
   const [liked, setLiked] = useState(false);
   const [superLiked, setSuperLiked] = useState(false);
   const [friends, setFriends] = useState(false);
+  const [starsCount, setStarsCount] = useState(0);
+  const [hasGivenSuperLike, setHasGivenSuperLike] = useState(false);
+  const [hasActiveConversation, setHasActiveConversation] = useState(false);
+
+  // Cargar contador de estrellas, estado de super like y verificar conversación activa al montar el componente
+  useEffect(() => {
+    const loadUserStatus = async () => {
+      try {
+        // Cargar estado de super like
+        const superLikeResponse = await apiService.get(`/users/${user.id}/super-like-status`);
+        
+        if (superLikeResponse.success) {
+          setStarsCount(superLikeResponse.data?.starsCount || 0);
+          setHasGivenSuperLike(superLikeResponse.data?.hasGivenSuperLike || false);
+          setSuperLiked(superLikeResponse.data?.hasGivenSuperLike || false);
+        }
+
+        // Verificar si hay conversación activa
+        // Listamos todas las conversaciones y verificamos si existe una con este usuario
+        const conversationsResponse = await apiService.get('/chat/conversations');
+        
+        if (conversationsResponse.success && conversationsResponse.data?.conversations) {
+          // Verificar si existe una conversación con este usuario
+          const hasConversationWithUser = conversationsResponse.data.conversations.some((conv: any) => {
+            return conv.participants && conv.participants.includes(user.id);
+          });
+          setHasActiveConversation(hasConversationWithUser);
+        }
+      } catch (error) {
+        console.error('Error cargando estado del usuario:', error);
+        // En caso de error, mantener valores por defecto
+        setStarsCount(0);
+        setHasGivenSuperLike(false);
+        setSuperLiked(false);
+        setHasActiveConversation(false);
+      }
+    };
+
+    loadUserStatus();
+  }, [user.id]);
 
   const handleGoBack = () => {
     router.back();
@@ -41,9 +82,28 @@ export default function UserProfileScreen() {
     router.push({ pathname: '/chat/[userId]', params: { userId: user.id } });
   };
 
-  const handleSuperLike = () => {
-    setSuperLiked(prev => !prev);
-    console.log('Super like user:', user.name);
+  const handleSuperLike = async () => {
+    // Prevenir super like duplicado
+    if (hasGivenSuperLike) {
+      console.log('Ya se ha dado super like a este usuario');
+      return;
+    }
+
+    try {
+      // Enviar super like al backend
+      const response = await apiService.post(`/users/${user.id}/super-like`, {});
+      
+      if (response.success) {
+        setSuperLiked(true);
+        setHasGivenSuperLike(true);
+        setStarsCount(response.data?.starsCount || 1);
+        console.log('Super like enviado exitosamente:', user.name, 'Nuevo contador:', response.data?.starsCount);
+      } else {
+        console.error('Error en respuesta del servidor:', response.message);
+      }
+    } catch (error) {
+      console.error('Error enviando super like:', error);
+    }
   };
 
   const handleMore = () => {
@@ -100,10 +160,23 @@ export default function UserProfileScreen() {
           <Ionicons name={liked ? 'heart' : 'heart-outline'} size={28} color={liked ? '#FF4458' : '#FFFFFF'} />
         </TouchableOpacity>
         <TouchableOpacity onPress={handleMessage} style={styles.actionIconButton}>
-          <Ionicons name="chatbubble-outline" size={28} color="#FFFFFF" />
+          <Ionicons 
+            name={hasActiveConversation ? "chatbubble" : "chatbubble-outline"} 
+            size={28} 
+            color={hasActiveConversation ? "#FFFFFF" : "#FFFFFF"} 
+          />
         </TouchableOpacity>
         <TouchableOpacity onPress={handleSuperLike} style={styles.actionIconButton}>
-          <Ionicons name={superLiked ? 'star' : 'star-outline'} size={28} color={superLiked ? '#FFC107' : '#FFFFFF'} />
+          <View style={styles.starContainer}>
+            <Ionicons 
+              name={superLiked ? 'star' : 'star-outline'} 
+              size={28} 
+              color={superLiked ? '#FFC107' : '#FFFFFF'} 
+            />
+            {starsCount > 0 && (
+              <Text style={styles.starCountText}>{starsCount}</Text>
+            )}
+          </View>
         </TouchableOpacity>
         <TouchableOpacity onPress={handleMore} style={styles.actionIconButton}>
           <Ionicons name={friends ? 'people' : 'people-outline'} size={28} color={friends ? '#4CAF50' : '#FFFFFF'} />
@@ -190,6 +263,18 @@ const styles = StyleSheet.create({
   },
   actionIconButton: {
     padding: 8,
+  },
+  starContainer: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  starCountText: {
+    position: 'absolute',
+    left: 32,
+    color: '#999999',
+    fontSize: 14,
+    fontWeight: '600',
   },
   infoSection: {
     paddingHorizontal: 16,

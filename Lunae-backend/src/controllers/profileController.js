@@ -167,3 +167,124 @@ export const getProfile = async (req, res) => {
     });
   }
 };
+
+// Dar super like a un usuario
+export const giveSuperLike = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    console.log('⭐ Usuario', currentUserId, 'dando super like a usuario', userId);
+
+    // Verificar que no se esté dando super like a sí mismo
+    if (userId === currentUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No puedes darte un super like a ti mismo',
+        error: 'CANNOT_LIKE_SELF'
+      });
+    }
+
+    // Verificar si ya se dio super like a este usuario
+    const hasAlreadyLiked = await User.hasGivenSuperLike(currentUserId, userId);
+    if (hasAlreadyLiked) {
+      console.log('❌ Usuario ya dio super like a este perfil:', currentUserId, '->', userId);
+      return res.status(400).json({
+        success: false,
+        message: 'Ya has dado un super like a este usuario',
+        error: 'ALREADY_LIKED'
+      });
+    }
+
+    // Buscar el usuario al que se le dará el super like
+    const targetUser = await User.findById(userId);
+    if (!targetUser) {
+      console.log('❌ Usuario objetivo no encontrado:', userId);
+      return res.status(404).json({
+        success: false,
+        message: 'Usuario no encontrado',
+        error: 'USER_NOT_FOUND'
+      });
+    }
+
+    // Registrar el super like y incrementar el contador de estrellas
+    await Promise.all([
+      User.recordSuperLike(currentUserId, userId),
+      targetUser.incrementStarsCount()
+    ]);
+
+    console.log('✅ Super like dado exitosamente. Nuevo contador:', targetUser.starsCount);
+
+    res.json({
+      success: true,
+      message: 'Super like dado exitosamente',
+      starsCount: targetUser.starsCount,
+      targetUser: {
+        id: targetUser.id,
+        displayName: targetUser.displayName,
+        username: targetUser.username
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error dando super like:', error);
+    
+    // Manejar errores específicos de DynamoDB
+    if (error.name === 'ResourceNotFoundException') {
+      return res.status(500).json({
+        success: false,
+        message: 'Error de configuración de la base de datos',
+        error: 'DB_CONFIG_ERROR'
+      });
+    } else if (error.name === 'AccessDeniedException') {
+      return res.status(500).json({
+        success: false,
+        message: 'Error de permisos en la base de datos',
+        error: 'DB_PERMISSION_ERROR'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: 'SERVER_ERROR',
+      details: error.message || 'Error desconocido'
+    });
+  }
+};
+
+// Verificar si un usuario ya dio super like a otro
+export const checkSuperLikeStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    console.log('🔍 Verificando estado de super like:', currentUserId, '->', userId);
+
+    // Verificar si ya se dio super like a este usuario
+    const hasAlreadyLiked = await User.hasGivenSuperLike(currentUserId, userId);
+
+    // Obtener el contador de estrellas del usuario objetivo
+    const targetUser = await User.findById(userId);
+    const starsCount = targetUser ? targetUser.starsCount || 0 : 0;
+
+    res.json({
+      success: true,
+      hasGivenSuperLike: hasAlreadyLiked,
+      starsCount: starsCount,
+      targetUser: targetUser ? {
+        id: targetUser.id,
+        displayName: targetUser.displayName,
+        username: targetUser.username
+      } : null
+    });
+  } catch (error) {
+    console.error('❌ Error verificando estado de super like:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: 'SERVER_ERROR',
+      details: error.message || 'Error desconocido'
+    });
+  }
+};

@@ -40,12 +40,13 @@ interface ChatContextType {
   // Mensajes
   sendMessage: (conversationId: string, content: string, replyTo?: ChatMessage, messageType?: 'text' | 'image') => Promise<void>;
   getMessages: (conversationId: string) => ChatMessage[];
-  markAsRead: (conversationId: string) => void;
+  markAsRead: (conversationId: string) => Promise<void>;
   
   // Utilidades
   getChatByUserId: (userId: string) => ActiveChat | null;
   getChatByConversationId: (conversationId: string) => ActiveChat | null;
   getUnreadCount: () => number;
+  getUnreadCountFromDatabase: () => Promise<number>;
   preloadChat: (userId: string, userInfo?: Partial<ChatUser>) => Promise<void>;
   getOtherUserInfo: (conversationId: string) => Promise<ChatUser | null>;
   
@@ -147,7 +148,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             messages: [],
             isLoading: false,
             lastActivity: new Date(conv.updatedAt || conv.createdAt),
-            unreadCount: conv.unreadCount || 0,
+            unreadCount: conv.unreadCount || 0, // Ahora viene de la base de datos
             isTyping: false
           };
 
@@ -156,7 +157,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       setActiveChats(newActiveChats);
-      console.log(`📱 ChatProvider: Cargados ${newActiveChats.size} chats activos`);
+      console.log(`📱 ChatProvider: Cargados ${newActiveChats.size} chats activos con unreadCount desde BD`);
     } catch (error) {
       console.error('❌ ChatProvider: Error cargando conversaciones existentes:', error);
     }
@@ -439,24 +440,59 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   // Marcar como leído
-  const markAsRead = (conversationId: string) => {
-    setActiveChats(prev => {
-      const newChats = new Map(prev);
-      const chat = newChats.get(conversationId);
-      if (chat && chat.unreadCount > 0) {
-        chat.unreadCount = 0;
-        newChats.set(conversationId, chat);
+  const markAsRead = async (conversationId: string) => {
+    try {
+      const chat = activeChats.get(conversationId);
+      if (!chat) return;
+
+      // Obtener mensajes no leídos del otro usuario
+      const unreadMessages = chat.messages.filter(message => 
+        message.senderId !== user!.id && !message.read
+      );
+
+      if (unreadMessages.length > 0) {
+        const messageIds = unreadMessages.map(msg => msg.messageId);
+        
+        // Marcar como leídos en el servidor
+        await optimizedChatService.markMessagesAsRead(conversationId, messageIds);
+        
+        console.log(`👁️ ChatProvider: ${messageIds.length} mensajes marcados como leídos en conversación ${conversationId}`);
       }
-      return newChats;
-    });
+
+      // Actualizar contador local
+      setActiveChats(prev => {
+        const newChats = new Map(prev);
+        const updatedChat = newChats.get(conversationId);
+        if (updatedChat && updatedChat.unreadCount > 0) {
+          updatedChat.unreadCount = 0;
+          newChats.set(conversationId, updatedChat);
+        }
+        return newChats;
+      });
+    } catch (error) {
+      console.error('❌ ChatProvider: Error marcando mensajes como leídos:', error);
+      
+      // Aún así, actualizar el contador local para la UX
+      setActiveChats(prev => {
+        const newChats = new Map(prev);
+        const chat = newChats.get(conversationId);
+        if (chat && chat.unreadCount > 0) {
+          chat.unreadCount = 0;
+          newChats.set(conversationId, chat);
+        }
+        return newChats;
+      });
+    }
   };
 
   // Cerrar chat (mantener en memoria pero marcar como inactivo)
   const closeChat = (conversationId: string) => {
     console.log(`🔒 ChatProvider: Cerrando chat ${conversationId}`);
     
-    // Marcar como leído al cerrar
-    markAsRead(conversationId);
+    // Marcar como leído al cerrar (asíncrono, no esperar)
+    markAsRead(conversationId).catch(error => {
+      console.error('❌ ChatProvider: Error marcando como leído al cerrar chat:', error);
+    });
     
     // Si es el chat actual, quitarlo
     if (currentChatId === conversationId) {
@@ -468,9 +504,11 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const setCurrentChat = (conversationId: string | null) => {
     setCurrentChatId(conversationId);
     
-    // Marcar como leído cuando se establece como actual
+    // Marcar como leído cuando se establece como actual (asíncrono, no esperar)
     if (conversationId) {
-      markAsRead(conversationId);
+      markAsRead(conversationId).catch(error => {
+        console.error('❌ ChatProvider: Error marcando como leído al establecer chat actual:', error);
+      });
     }
   };
 
@@ -523,6 +561,25 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       total += chat.unreadCount;
     }
     return total;
+  };
+
+  // Obtener contador de no leídos desde la base de datos (función asíncrona)
+  const getUnreadCountFromDatabase = async (): Promise<number> => {
+    try {
+      const conversations = await optimizedChatService.getConversations({ limit: 50 });
+      let total = 0;
+      
+      for (const conv of conversations.items) {
+        total += conv.unreadCount || 0;
+      }
+      
+      console.log(`📊 ChatProvider: Total mensajes no leídos desde BD: ${total}`);
+      return total;
+    } catch (error) {
+      console.error('❌ ChatProvider: Error obteniendo contador desde BD:', error);
+      // Fallback al contador local
+      return getUnreadCount();
+    }
   };
 
   // Refrescar chats con protección contra bucles
@@ -604,6 +661,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     getChatByUserId,
     getChatByConversationId,
     getUnreadCount,
+    getUnreadCountFromDatabase,
     getOtherUserInfo,
     getConnectionStatus,
     refreshChats

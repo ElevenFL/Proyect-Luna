@@ -34,12 +34,14 @@ export default function GlobalMessagesScreen() {
     refreshChats, 
     preloadChat, 
     getUnreadCount,
+    getUnreadCountFromDatabase,
     openChat
   } = useChat();
   
   const [searchQuery, setSearchQuery] = useState('');
   const [hiddenConversations, setHiddenConversations] = useState<Set<string>>(new Set());
   const [localLoading, setLocalLoading] = useState(true);
+  const [unreadCountFromDB, setUnreadCountFromDB] = useState(0);
 
   // Convertir chats activos a formato de conversaciones para la UI
   const conversations: ConversationItem[] = React.useMemo(() => {
@@ -78,6 +80,16 @@ export default function GlobalMessagesScreen() {
     );
   }, [conversations, searchQuery]);
 
+  // Función para actualizar contador desde la base de datos
+  const updateUnreadCountFromDB = async () => {
+    try {
+      const count = await getUnreadCountFromDatabase();
+      setUnreadCountFromDB(count);
+    } catch (error) {
+      console.error('❌ GlobalMessages: Error actualizando contador desde BD:', error);
+    }
+  };
+
   // Cargar inicial
   useEffect(() => {
     const loadInitial = async () => {
@@ -86,6 +98,9 @@ export default function GlobalMessagesScreen() {
         
         setLocalLoading(true);
         console.log('🚀 GlobalMessages: Cargando mensajes globales');
+        
+        // Actualizar contador desde la base de datos
+        await updateUnreadCountFromDB();
         
         // El ChatProvider ya maneja la carga inicial
         // Solo esperamos un momento para que se inicialice
@@ -107,6 +122,8 @@ export default function GlobalMessagesScreen() {
     useCallback(() => {
       if (user?.id) {
         console.log('🔄 GlobalMessages: Foco recibido');
+        // Actualizar contador desde la base de datos cuando la pantalla recibe foco
+        updateUnreadCountFromDB();
         // Solo refrescar si han pasado más de 30 segundos desde la última carga
         // El ChatProvider ya maneja su propio refresco automático
       }
@@ -400,10 +417,10 @@ export default function GlobalMessagesScreen() {
       </View>
 
       {/* Contador de mensajes no leídos */}
-      {getUnreadCount() > 0 && (
+      {unreadCountFromDB > 0 && (
         <View style={styles.unreadCountContainer}>
           <Text style={styles.unreadCountText}>
-            {getUnreadCount()} mensaje{getUnreadCount() > 1 ? 's' : ''} sin leer
+            {unreadCountFromDB} mensaje{unreadCountFromDB > 1 ? 's' : ''} sin leer
           </Text>
         </View>
       )}
@@ -439,7 +456,10 @@ export default function GlobalMessagesScreen() {
             index,
           })}
           refreshing={isGlobalLoading}
-          onRefresh={refreshChats}
+          onRefresh={async () => {
+            await refreshChats();
+            await updateUnreadCountFromDB();
+          }}
         />
       )}
     </GestureHandlerRootView>

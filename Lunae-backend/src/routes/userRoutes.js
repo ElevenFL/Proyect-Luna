@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { User } from "../models/Users.js";
 import { auth } from "../middleware/auth.js";
 import { getFlagFromAddress } from "../utils/countryFlags.js";
+import { giveSuperLike, checkSuperLikeStatus } from "../controllers/profileController.js";
 
 const router = express.Router();
 
@@ -703,5 +704,11 @@ router.get("/", auth, async (req, res) => {
     });
   }
 });
+
+// Ruta para dar super like a un usuario
+router.post('/:userId/super-like', auth, giveSuperLike);
+
+// Ruta para verificar el estado de super like
+router.get('/:userId/super-like-status', auth, checkSuperLikeStatus);
 
 export default router;

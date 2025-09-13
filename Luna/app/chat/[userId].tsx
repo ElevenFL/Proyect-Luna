@@ -86,6 +86,7 @@ const GlobalChatScreen = React.memo(() => {
   const isNearBottom = useRef(true);
   const lastScrollOffset = useRef(0);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const markAsReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Función para hacer scroll al final con lógica inteligente
   const scrollToEnd = useCallback((force = false) => {
@@ -117,7 +118,22 @@ const GlobalChatScreen = React.memo(() => {
     }
     
     lastScrollOffset.current = contentOffset.y;
-  }, []);
+    
+    // Marcar mensajes como leídos cuando el usuario está viendo el chat
+    // Solo si está cerca del final (viendo los mensajes más recientes)
+    // Usar debounce para evitar llamadas excesivas
+    if (isNearBottom.current && conversationId) {
+      if (markAsReadTimeoutRef.current) {
+        clearTimeout(markAsReadTimeoutRef.current);
+      }
+      
+      markAsReadTimeoutRef.current = setTimeout(() => {
+        markAsRead(conversationId).catch(error => {
+          console.error('❌ GlobalChat: Error marcando como leído durante scroll:', error);
+        });
+      }, 1000); // Esperar 1 segundo después del último scroll
+    }
+  }, [conversationId, markAsRead]);
 
   // Función para cargar mensajes anteriores (paginación)
   const loadOlderMessages = useCallback(async () => {
@@ -132,13 +148,15 @@ const GlobalChatScreen = React.memo(() => {
       // Usar optimizedChatService para cargar mensajes anteriores
       const response = await import('@/services/optimizedChatService').then(module => 
         module.default.getMessages(conversationId, { 
-          limit: 20, 
+          limit: 50, 
           before: oldestMessageId 
         })
       );
 
       if (response.items && response.items.length > 0) {
-        const olderMessages = response.items.reverse(); // Más antiguos primero
+        // Los mensajes vienen del backend en orden descendente (más recientes primero)
+        // No necesitamos hacer reverse() ya que queremos mantener el orden cronológico
+        const olderMessages = response.items;
         console.log(`📜 Chat: ${olderMessages.length} mensajes anteriores cargados`);
         
         setMessages(prevMessages => {
@@ -154,8 +172,11 @@ const GlobalChatScreen = React.memo(() => {
           );
         });
 
-        // Actualizar el ID del mensaje más antiguo
-        const newOldestMessage = olderMessages[olderMessages.length - 1];
+        // Actualizar el ID del mensaje más antiguo (está al final del array ordenado)
+        const sortedOlderMessages = [...olderMessages].sort((a, b) => 
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        const newOldestMessage = sortedOlderMessages[0];
         setOldestMessageId(newOldestMessage.messageId);
 
         // Si se cargaron menos mensajes del límite, no hay más
@@ -322,12 +343,16 @@ const GlobalChatScreen = React.memo(() => {
       
       // Inicializar estados de paginación solo una vez
       if (chatMessages.length > 0) {
+        // Para FlatList invertido, necesitamos mensajes en orden descendente (más recientes primero)
         const sortedMessages = [...chatMessages].sort((a, b) => 
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
-        const oldestMessage = sortedMessages[0];
+        setMessages(sortedMessages); // Actualizar mensajes con el orden correcto
+        
+        // El mensaje más antiguo está al final del array ordenado
+        const oldestMessage = sortedMessages[sortedMessages.length - 1];
         setOldestMessageId(oldestMessage.messageId);
-        setHasMoreMessages(chatMessages.length >= 20); // Si hay 20 o más, probablemente hay más
+        setHasMoreMessages(chatMessages.length >= 50); // Si hay 50 o más, probablemente hay más
         
         // Scroll al final cuando se cargan nuevos mensajes
         setTimeout(() => scrollToEnd(false), 100);
@@ -345,7 +370,11 @@ const GlobalChatScreen = React.memo(() => {
       const newMessageIds = chatMessages.map(m => m.messageId).sort().join(',');
       
       if (currentMessageIds !== newMessageIds) {
-        setMessages(chatMessages);
+        // Ordenar mensajes en orden descendente para FlatList invertido
+        const sortedMessages = [...chatMessages].sort((a, b) => 
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        setMessages(sortedMessages);
         console.log(`📨 GlobalChat: Mensajes actualizados: ${chatMessages.length}`);
         
         // Scroll automático para mensajes nuevos (sin animación)
@@ -358,7 +387,11 @@ const GlobalChatScreen = React.memo(() => {
   useEffect(() => {
     if (conversationId) {
       const chatMessages = getMessages(conversationId);
-      setMessages(chatMessages);
+      // Ordenar mensajes en orden descendente para FlatList invertido
+      const sortedMessages = [...chatMessages].sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      setMessages(sortedMessages);
     }
   }, [activeChats, conversationId, getMessages]); // Escuchar cambios en activeChats
 
@@ -366,8 +399,11 @@ const GlobalChatScreen = React.memo(() => {
   useFocusEffect(
     useCallback(() => {
       if (conversationId) {
-        markAsRead(conversationId);
-        console.log(`👁️ GlobalChat: Chat marcado como leído: ${conversationId}`);
+        markAsRead(conversationId).then(() => {
+          console.log(`👁️ GlobalChat: Chat marcado como leído: ${conversationId}`);
+        }).catch(error => {
+          console.error('❌ GlobalChat: Error marcando chat como leído:', error);
+        });
       }
     }, [conversationId]) // Removida markAsRead de las dependencias
   );
@@ -380,6 +416,11 @@ const GlobalChatScreen = React.memo(() => {
         console.log(`🔒 GlobalChat: Cerrando chat: ${currentConversationId}`);
         closeChat(currentConversationId);
         setCurrentChatRef.current(null);
+      }
+      
+      // Limpiar timeouts
+      if (markAsReadTimeoutRef.current) {
+        clearTimeout(markAsReadTimeoutRef.current);
       }
     };
   }, []); // Sin dependencias - solo ejecutar al desmontar

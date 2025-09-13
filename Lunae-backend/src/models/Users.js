@@ -53,6 +53,9 @@ export class User {
       this.lastConnection = data.lastConnection;
       this.connectionPriority = data.connectionPriority;
       
+      // Contador de super likes (estrellas)
+      this.starsCount = data.starsCount || 0;
+      
       // Estructura para tabla Lunea-chat (PK/SK)
       this.PK = `USER#${this.id}`;
       this.SK = `PROFILE#${this.id}`;
@@ -694,6 +697,86 @@ export class User {
     } catch (error) {
       console.error('❌ Error reactivando usuario:', error);
       throw error;
+    }
+  }
+
+  // Método para incrementar el contador de estrellas
+  async incrementStarsCount() {
+    try {
+      // Asegurar que la tabla existe
+      await User.ensureTableExists();
+      
+      const command = new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: { 
+          PK: this.PK,
+          SK: this.SK
+        },
+        UpdateExpression: 'SET starsCount = if_not_exists(starsCount, :zero) + :inc, updatedAt = :updatedAt',
+        ExpressionAttributeValues: {
+          ':inc': 1,
+          ':zero': 0,
+          ':updatedAt': new Date().toISOString()
+        },
+        ReturnValues: 'ALL_NEW'
+      });
+
+      const result = await docClient.send(command);
+      Object.assign(this, User.fromDynamoDB(result.Attributes));
+      console.log(`✅ Contador de estrellas incrementado para usuario ${this.id}: ${this.starsCount}`);
+      return this;
+    } catch (error) {
+      console.error('❌ Error incrementando contador de estrellas:', error);
+      throw error;
+    }
+  }
+
+  // Método estático para registrar un super like entre usuarios
+  static async recordSuperLike(fromUserId, toUserId) {
+    try {
+      // Asegurar que la tabla existe
+      await User.ensureTableExists();
+      
+      const command = new PutCommand({
+        TableName: TABLE_NAME,
+        Item: {
+          PK: `SUPERLIKE#${fromUserId}`,
+          SK: `TO#${toUserId}`,
+          fromUserId,
+          toUserId,
+          timestamp: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        }
+      });
+
+      await docClient.send(command);
+      console.log(`✅ Super like registrado: ${fromUserId} -> ${toUserId}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Error registrando super like:', error);
+      throw error;
+    }
+  }
+
+  // Método estático para verificar si un usuario ya dio super like a otro
+  static async hasGivenSuperLike(fromUserId, toUserId) {
+    try {
+      // Asegurar que la tabla existe
+      await User.ensureTableExists();
+      
+      const command = new GetCommand({
+        TableName: TABLE_NAME,
+        Key: { 
+          PK: `SUPERLIKE#${fromUserId}`,
+          SK: `TO#${toUserId}`
+        }
+      });
+
+      const result = await docClient.send(command);
+      return !!result.Item;
+    } catch (error) {
+      console.error('❌ Error verificando super like:', error);
+      return false;
     }
   }
 

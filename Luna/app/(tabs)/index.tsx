@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { UserCard, User } from '@/components/UserCard';
+import FilterModal, { FilterOptions } from '@/components/FilterModal';
 import ApiService from '@/services/apiService';
 import { getFlagFromAddress } from '@/utils/countryFlags';
 import { useAuth } from '@/contexts/AuthContext';
@@ -112,8 +113,15 @@ const createMockUsers = (): User[] => {
 export default function HomeScreen() {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
+  const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [currentFilters, setCurrentFilters] = useState<FilterOptions>({
+    ageRange: [18, 65],
+    gender: 'all',
+    countries: []
+  });
 
   // Función para filtrar al usuario actual de la lista
   const filterCurrentUser = (usersList: User[]) => {
@@ -132,6 +140,34 @@ export default function HomeScreen() {
       const aTime = a.connectionPriority || 0;
       const bTime = b.connectionPriority || 0;
       return bTime - aTime;
+    });
+  };
+
+  // Función para aplicar filtros a los usuarios
+  const applyFilters = (usersList: User[], filters: FilterOptions) => {
+    return usersList.filter(user => {
+      // Filtro por edad
+      if (user.age < filters.ageRange[0] || user.age > filters.ageRange[1]) {
+        return false;
+      }
+
+      // Filtro por género
+      if (filters.gender !== 'all' && user.gender !== filters.gender) {
+        return false;
+      }
+
+      // Filtro por países
+      if (filters.countries.length > 0) {
+        const userCountry = user.country.split(',')[1]?.trim() || user.country;
+        const hasMatchingCountry = filters.countries.some(country => 
+          userCountry.toLowerCase().includes(country.toLowerCase())
+        );
+        if (!hasMatchingCountry) {
+          return false;
+        }
+      }
+
+      return true;
     });
   };
 
@@ -155,13 +191,22 @@ export default function HomeScreen() {
         const filteredUsers = filterCurrentUser(usersWithFlags);
         console.log(`🔍 Filtrado adicional en frontend: ${usersWithFlags.length} -> ${filteredUsers.length} usuarios`);
         
-        setUsers(filteredUsers);
+        const sortedUsers = sortUsersByConnection(filteredUsers);
+        setUsers(sortedUsers);
+        
+        // Aplicar filtros actuales
+        const filteredByCriteria = applyFilters(sortedUsers, currentFilters);
+        setFilteredUsers(filteredByCriteria);
       } else {
         console.log('⚠️ No se pudieron cargar usuarios del API, usando datos mock');
         const mockUsers = createMockUsers();
         const filteredMockUsers = filterCurrentUser(mockUsers);
         const sortedUsers = sortUsersByConnection(filteredMockUsers);
         setUsers(sortedUsers);
+        
+        // Aplicar filtros actuales
+        const filteredByCriteria = applyFilters(sortedUsers, currentFilters);
+        setFilteredUsers(filteredByCriteria);
       }
     } catch (error) {
       console.error('❌ Error cargando usuarios del API:', error);
@@ -170,6 +215,10 @@ export default function HomeScreen() {
       const filteredMockUsers = filterCurrentUser(mockUsers);
       const sortedUsers = sortUsersByConnection(filteredMockUsers);
       setUsers(sortedUsers);
+      
+      // Aplicar filtros actuales
+      const filteredByCriteria = applyFilters(sortedUsers, currentFilters);
+      setFilteredUsers(filteredByCriteria);
     } finally {
       setLoading(false);
     }
@@ -208,7 +257,16 @@ export default function HomeScreen() {
 
   const handleFilterPress = () => {
     console.log('Filter pressed');
-    // Implementar filtros
+    setShowFilterModal(true);
+  };
+
+  const handleApplyFilters = (filters: FilterOptions) => {
+    console.log('Aplicando filtros:', filters);
+    setCurrentFilters(filters);
+    
+    // Aplicar filtros a los usuarios actuales
+    const filtered = applyFilters(users, filters);
+    setFilteredUsers(filtered);
   };
 
   const handleNotificationPress = () => {
@@ -240,14 +298,14 @@ export default function HomeScreen() {
         </View>
 
         {/* Users List */}
-        {loading && users.length === 0 ? (
+        {loading && filteredUsers.length === 0 ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#FFD700" />
             <Text style={styles.loadingText}>Cargando usuarios...</Text>
           </View>
         ) : (
           <FlatList
-            data={users}
+            data={filteredUsers}
             renderItem={renderUserItem}
             keyExtractor={(item) => item.id}
             ItemSeparatorComponent={renderSeparator}
@@ -262,8 +320,23 @@ export default function HomeScreen() {
                 tintColor="#FFD700"
               />
             }
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Ionicons name="people-outline" size={64} color="#666666" />
+                <Text style={styles.emptyText}>No se encontraron usuarios</Text>
+                <Text style={styles.emptySubtext}>Intenta ajustar los filtros</Text>
+              </View>
+            }
           />
         )}
+
+        {/* Filter Modal */}
+        <FilterModal
+          visible={showFilterModal}
+          onClose={() => setShowFilterModal(false)}
+          onApplyFilters={handleApplyFilters}
+          currentFilters={currentFilters}
+        />
     </View>
   );
 }
@@ -323,5 +396,22 @@ const styles = StyleSheet.create({
     color: '#CCCCCC',
     fontSize: 16,
     marginTop: 16,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  emptyText: {
+    color: '#CCCCCC',
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  emptySubtext: {
+    color: '#999999',
+    fontSize: 14,
+    marginTop: 8,
   },
 });

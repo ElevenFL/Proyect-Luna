@@ -135,7 +135,7 @@ export const auth = async (req, res, next) => {
     }
 
     // Excluir contraseña del usuario
-    req.user = user.select('-password');
+    req.user = user.select ? user.select('-password') : user;
     
     // Debug: Log para verificar la estructura del usuario autenticado (comentado para producción)
     // console.log('🔍 Auth Middleware Debug:', {

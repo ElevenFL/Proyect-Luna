@@ -2,17 +2,27 @@ import Chat from '../models/Chat.js';
 
 export const getOrCreateConversation = async (req, res) => {
   try {
+    console.log('🔍 getOrCreateConversation: Iniciando solicitud');
+    console.log('🔍 getOrCreateConversation: req.params:', req.params);
+    console.log('🔍 getOrCreateConversation: req.user:', req.user);
+    
     const { otherUserId } = req.params;
     const currentUserId = req.user?.id || req.user?.userId || req.user?.PK?.replace('USER#', '');
 
+    console.log('🔍 getOrCreateConversation: otherUserId:', otherUserId);
+    console.log('🔍 getOrCreateConversation: currentUserId:', currentUserId);
+
     if (!currentUserId || !otherUserId) {
+      console.log('❌ getOrCreateConversation: Faltan parámetros');
       return res.status(400).json({ success: false, message: 'Faltan parámetros' });
     }
 
     const { conversationId, conversation } = await Chat.getOrCreateConversation(currentUserId, otherUserId);
+    console.log('✅ getOrCreateConversation: Conversación obtenida/creada:', conversationId);
     return res.json({ success: true, data: { conversationId, conversation } });
   } catch (error) {
-    console.error('getOrCreateConversation error', error);
+    console.error('❌ getOrCreateConversation error:', error);
+    console.error('❌ getOrCreateConversation error stack:', error.stack);
     return res.status(500).json({ success: false, message: 'Error interno' });
   }
 };

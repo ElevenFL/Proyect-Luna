@@ -409,6 +409,16 @@ class ApiService {
     return this.request<T>(endpoint, { method: 'DELETE' });
   }
 
+  public async patch<T = any>(endpoint: string, data: any): Promise<ApiResponse<T>> {
+    return this.request<T>(endpoint, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+  }
+
   /**
    * Verifica si hay conexión con el servidor
    */
@@ -660,11 +670,18 @@ class ApiService {
     return this.get(`/chat/conversations/${conversationId}/other-user`);
   }
 
+  /**
+   * Marca mensajes como leídos
+   */
+  public async markMessagesAsRead(conversationId: string, messageIds: string[]): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    return this.patch(`/chat/conversations/${conversationId}/messages/read`, { messageIds });
+  }
+
   // ====== USUARIOS ======
   /**
    * Obtiene usuarios ordenados por estado de conexión
    */
-  public async getHomeUsers(): Promise<ApiResponse<{ users: any[]; totalCount: number }>> {
+  public async getHomeUsers(): Promise<ApiResponse<any[]>> {
     return this.get('/users/home');
   }
 
