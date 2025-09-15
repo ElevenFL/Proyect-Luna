@@ -8,6 +8,7 @@ import userRoutes from "./routes/userRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import imageRoutes from "./routes/imageRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
+import friendRequestRoutes from "./routes/friendRequestRoutes.js";
 
 dotenv.config();
 
@@ -64,9 +65,10 @@ app.get("/api/health", (req, res) => {
 
 // Rutas API
 app.use("/api/users", userRoutes);
-app.use("/api/profile", profileRoutes);
+app.use("/api/profiles", profileRoutes);
 app.use("/api/images", imageRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/friend-requests", friendRequestRoutes);
 
 // Middleware para rutas no encontradas
 app.use('*', (req, res) => {

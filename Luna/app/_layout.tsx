@@ -10,6 +10,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ConversationProvider } from '@/contexts/ConversationContext';
 import { ChatProvider } from '@/contexts/ChatProvider';
+import { PrefetchProvider } from '@/contexts/PrefetchContext';
 import SafeAlert from '@/components/SafeAlert';
 import { AppInitializer } from '@/components/AppInitializer';
 import '@/config/amplify'; // Inicializar Amplify
@@ -41,26 +42,32 @@ export default function RootLayout() {
   return (
     <AppInitializer>
       <AuthProvider>
-        <ConversationProvider>
-          <ChatProvider>
-            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-              <Stack>
-                <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-                <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                <Stack.Screen name="user-profile" options={{ headerShown: false }} />
-                <Stack.Screen name="chat/[userId]" options={{ headerShown: false }} />
-                <Stack.Screen name="+not-found" />
-              </Stack>
-              <StatusBar style="auto" />
-              <SafeAlert />
-              {isDevelopment && (
-                <View style={{ position: 'absolute', top: 80, right: 10, zIndex: 9999 }}>
-                </View>
-              )}
-            </ThemeProvider>
-          </ChatProvider>
-        </ConversationProvider>
+        <PrefetchProvider>
+          <ConversationProvider>
+            <ChatProvider>
+              <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                <Stack
+                  screenOptions={{
+                    headerShown: false,
+                  }}
+                >
+                  <Stack.Screen name="(auth)" />
+                  <Stack.Screen name="onboarding" />
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="user-profile" />
+                  <Stack.Screen name="chat/[userId]" />
+                  <Stack.Screen name="+not-found" />
+                </Stack>
+                <StatusBar style="auto" />
+                <SafeAlert />
+                {isDevelopment && (
+                  <View style={{ position: 'absolute', top: 80, right: 10, zIndex: 9999 }}>
+                  </View>
+                )}
+              </ThemeProvider>
+            </ChatProvider>
+          </ConversationProvider>
+        </PrefetchProvider>
       </AuthProvider>
     </AppInitializer>
   );

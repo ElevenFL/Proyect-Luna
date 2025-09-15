@@ -3,6 +3,7 @@ import { AppState, AppStateStatus, DeviceEventEmitter } from 'react-native';
 import { useAuth } from './AuthContext';
 import optimizedChatService, { ChatMessage } from '@/services/optimizedChatService';
 import { socketService } from '@/services/socketService';
+import enhancedCacheService from '@/services/enhancedCacheService';
 
 interface ChatUser {
   id: string;
@@ -24,6 +25,12 @@ interface ActiveChat {
   lastActivity: Date;
   unreadCount: number;
   isTyping: boolean;
+  lastMessagePreview?: string; // Preview del último mensaje desde DynamoDB
+  metadata?: {
+    accessCount: number;
+    priority: 'high' | 'medium' | 'low';
+    lastAccessTime: number;
+  };
 }
 
 interface ChatContextType {
@@ -31,6 +38,7 @@ interface ChatContextType {
   activeChats: Map<string, ActiveChat>;
   currentChatId: string | null;
   isGlobalLoading: boolean;
+  lastUpdateTimestamp: number; // Para forzar re-renderizaciones
   
   // Gestión de chats
   openChat: (userId: string, userInfo?: Partial<ChatUser>) => Promise<string>;
@@ -62,6 +70,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [activeChats, setActiveChats] = useState<Map<string, ActiveChat>>(new Map());
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [isGlobalLoading, setIsGlobalLoading] = useState(false);
+  const [lastUpdateTimestamp, setLastUpdateTimestamp] = useState<number>(Date.now());
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
   
   // Refs para optimización
@@ -100,6 +109,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.log('🚀 ChatProvider: Inicializando proveedor global de chat');
       setIsGlobalLoading(true);
 
+      // Inicializar el servicio de caché mejorado
+      await enhancedCacheService.initialize();
+
       // Asegurar que el servicio de chat optimizado esté inicializado
       if (!optimizedChatService.isInitialized()) {
         await optimizedChatService.initialize(user!.id);
@@ -125,39 +137,91 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Cargar conversaciones existentes
   const loadExistingConversations = async () => {
     try {
+      // Cargar conversaciones desde el servidor
       const conversations = await optimizedChatService.getConversations({ limit: 50 });
       const newActiveChats = new Map<string, ActiveChat>();
 
       for (const conv of conversations.items) {
         const otherUserId = conv.participants?.find((p: string) => p !== user!.id);
         if (otherUserId) {
+          // Obtener mensajes desde el caché mejorado
+          const cachedMessages = await enhancedCacheService.getMessages(conv.conversationId);
+          
+          // Obtener metadata de la conversación
+          const metadata = await enhancedCacheService.getConversationMetadata(conv.conversationId);
+          
           // Crear chat activo con información básica
           const activeChat: ActiveChat = {
             conversationId: conv.conversationId,
             otherUser: {
               id: otherUserId,
-              name: conv.otherUser?.name || `Usuario ${otherUserId.slice(-4)}`,
-              profileImage: conv.otherUser?.profileImage,
-              isOnline: conv.otherUser?.isOnline || false,
-              lastSeen: conv.otherUser?.lastSeen,
-              age: conv.otherUser?.age,
-              gender: conv.otherUser?.gender as 'male' | 'female' | 'other' | undefined,
-              country: conv.otherUser?.country,
-              countryFlag: conv.otherUser?.countryFlag
+              name: conv.otherUser?.name || metadata?.otherUserInfo?.name || `Usuario ${otherUserId.slice(-4)}`,
+              profileImage: conv.otherUser?.profileImage || metadata?.otherUserInfo?.profileImage,
+              isOnline: conv.otherUser?.isOnline || metadata?.otherUserInfo?.isOnline || false,
+              lastSeen: conv.otherUser?.lastSeen || metadata?.otherUserInfo?.lastSeen,
+              age: conv.otherUser?.age || metadata?.otherUserInfo?.age,
+              gender: (conv.otherUser?.gender || metadata?.otherUserInfo?.gender) as 'male' | 'female' | 'other' | undefined,
+              country: conv.otherUser?.country || metadata?.otherUserInfo?.country,
+              countryFlag: conv.otherUser?.countryFlag || metadata?.otherUserInfo?.countryFlag
             },
-            messages: [],
+            messages: cachedMessages,
             isLoading: false,
-            lastActivity: new Date(conv.updatedAt || conv.createdAt),
-            unreadCount: conv.unreadCount || 0, // Ahora viene de la base de datos
-            isTyping: false
+            lastActivity: new Date(conv.lastMessageAt || conv.updatedAt || conv.createdAt),
+            unreadCount: conv.unreadCount || metadata?.unreadCount || 0,
+            isTyping: false,
+            lastMessagePreview: conv.lastMessagePreview || undefined, // Usar el preview desde DynamoDB
+            metadata: metadata ? {
+              accessCount: metadata.accessCount,
+              priority: metadata.priority,
+              lastAccessTime: metadata.lastAccessTime
+            } : undefined
           };
 
           newActiveChats.set(conv.conversationId, activeChat);
+
+          // Actualizar metadata en el caché si no existe
+          if (!metadata) {
+            await enhancedCacheService.updateConversationMetadata(conv.conversationId, {
+              conversationId: conv.conversationId,
+              lastAccessTime: Date.now(),
+              accessCount: 1,
+              lastMessageAt: conv.lastMessageAt || new Date().toISOString(),
+              unreadCount: conv.unreadCount || 0,
+              priority: 'low',
+              participants: conv.participants || [],
+              otherUserInfo: {
+                id: otherUserId,
+                name: conv.otherUser?.name || `Usuario ${otherUserId.slice(-4)}`,
+                profileImage: conv.otherUser?.profileImage,
+                isOnline: conv.otherUser?.isOnline || false,
+                lastSeen: conv.otherUser?.lastSeen,
+                age: conv.otherUser?.age,
+                gender: conv.otherUser?.gender as 'male' | 'female' | 'other',
+                country: conv.otherUser?.country,
+                countryFlag: conv.otherUser?.countryFlag
+              },
+              createdAt: conv.createdAt,
+              updatedAt: conv.updatedAt || conv.createdAt
+            });
+          }
+
+          // Solo cargar información del usuario si realmente es necesario
+          const hasIncompleteInfo = (!conv.otherUser?.name || conv.otherUser?.name?.includes('Usuario ')) && 
+                                   !conv.otherUser?.profileImage;
+          
+          if (hasIncompleteInfo) {
+            console.log(`🔄 ChatProvider: Información básica faltante para ${otherUserId}, cargando...`);
+            loadUserInfoForChat(otherUserId, conv.conversationId).catch(error => {
+              console.error(`❌ ChatProvider: Error cargando información del usuario ${otherUserId}:`, error);
+            });
+          } else {
+            console.log(`✅ ChatProvider: Usuario ${otherUserId} ya tiene información completa, omitiendo carga`);
+          }
         }
       }
 
       setActiveChats(newActiveChats);
-      console.log(`📱 ChatProvider: Cargados ${newActiveChats.size} chats activos con unreadCount desde BD`);
+      console.log(`📱 ChatProvider: Cargados ${newActiveChats.size} chats activos con caché mejorado`);
     } catch (error) {
       console.error('❌ ChatProvider: Error cargando conversaciones existentes:', error);
     }
@@ -178,12 +242,17 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   // Manejar nuevos mensajes
-  const handleNewMessage = useCallback((message: ChatMessage) => {
+  const handleNewMessage = useCallback(async (message: ChatMessage) => {
     console.log('📨 ChatProvider: Nuevo mensaje recibido:', {
       messageId: message.messageId,
       conversationId: message.conversationId,
       senderId: message.senderId
     });
+
+    // Añadir mensaje al caché mejorado
+    if (message.conversationId) {
+      await enhancedCacheService.addMessage(message.conversationId, message);
+    }
 
     setActiveChats(prevChats => {
       const newChats = new Map(prevChats);
@@ -195,16 +264,13 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const messageExists = chat.messages.some(m => m.messageId === message.messageId);
         
         if (!messageExists) {
-          // Si es un mensaje nuestro, reemplazar el mensaje optimista
-          if (isFromMe) {
-            // Buscar y remover mensaje optimista con el mismo contenido
-            chat.messages = chat.messages.filter(m => 
-              !(m.isOptimistic && m.content === message.content && m.senderId === message.senderId)
-            );
-          }
-          
-          chat.messages = [message, ...chat.messages];
+          // Añadir mensaje y mantener orden descendente (más recientes primero)
+          const allMessages = [...chat.messages, message];
+          chat.messages = allMessages.sort((a, b) => 
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
           chat.lastActivity = new Date(message.createdAt);
+          chat.lastMessagePreview = message.content; // Actualizar preview del último mensaje
           
           // Incrementar contador de no leídos solo si no es nuestro mensaje y no es el chat actual
           if (!isFromMe && currentChatId !== message.conversationId) {
@@ -212,12 +278,17 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
           
           newChats.set(message.conversationId!, chat);
+        } else {
+          console.log(`⚠️ ChatProvider: Mensaje duplicado ignorado - ${message.messageId}`);
         }
       } else {
         // Chat no existe, necesitamos crearlo si el mensaje es para nosotros
         const isMessageForMe = message.receiverId === user!.id || message.senderId === user!.id;
         if (isMessageForMe && message.conversationId) {
+          // Crear chat inmediatamente
           createChatFromMessage(message, newChats);
+          // Forzar actualización de la UI para nueva conversación
+          setLastUpdateTimestamp(Date.now());
         }
       }
       
@@ -229,6 +300,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const createChatFromMessage = (message: ChatMessage, chatsMap: Map<string, ActiveChat>) => {
     const otherUserId = message.senderId === user!.id ? message.receiverId : message.senderId;
     
+    // Crear chat temporal con información básica
     const newChat: ActiveChat = {
       conversationId: message.conversationId!,
       otherUser: {
@@ -240,11 +312,82 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isLoading: false,
       lastActivity: new Date(message.createdAt),
       unreadCount: message.senderId !== user!.id ? 1 : 0,
-      isTyping: false
+      isTyping: false,
+      lastMessagePreview: message.content // Usar el contenido del mensaje como preview
     };
 
     chatsMap.set(message.conversationId!, newChat);
     console.log(`➕ ChatProvider: Nuevo chat creado desde mensaje: ${message.conversationId}`);
+
+    // Unirse a la conversación para recibir mensajes futuros
+    optimizedChatService.joinConversationWhenReady(message.conversationId!, 5000).catch(error => {
+      console.error(`❌ ChatProvider: Error uniéndose a conversación ${message.conversationId}:`, error);
+    });
+
+    // Obtener información completa del usuario en paralelo
+    loadUserInfoForChat(otherUserId, message.conversationId!).catch(error => {
+      console.error(`❌ ChatProvider: Error cargando información del usuario ${otherUserId}:`, error);
+    });
+  };
+
+  // Cargar información completa del usuario para un chat
+  const loadUserInfoForChat = async (userId: string, conversationId: string) => {
+    try {
+      console.log(`👤 ChatProvider: Cargando información del usuario ${userId} para conversación ${conversationId}`);
+      
+      const apiService = (await import('@/services/apiService')).default;
+      const response = await apiService.getUserById(userId);
+      
+      if (response.success && response.data?.user) {
+        const userData = response.data.user;
+        
+        // Actualizar el chat con la información completa del usuario
+        setActiveChats(prev => {
+          const newChats = new Map(prev);
+          const chat = newChats.get(conversationId);
+          
+          if (chat) {
+            // Solo actualizar si realmente hay cambios importantes para evitar re-renders innecesarios
+            // Priorizar cambios que afecten la UI (imagen, nombre, estado online)
+            const hasImportantChanges = 
+              (chat.otherUser.profileImage !== userData.profileImage && userData.profileImage) ||
+              (chat.otherUser.name !== userData.name && !userData.name?.includes('Usuario ')) ||
+              chat.otherUser.isOnline !== userData.isOnline;
+            
+            if (hasImportantChanges) {
+              // Crear un nuevo objeto solo si hay cambios reales
+              const updatedChat: ActiveChat = {
+                ...chat,
+                otherUser: {
+                  id: userData.id,
+                  name: userData.name,
+                  profileImage: userData.profileImage,
+                  isOnline: userData.isOnline,
+                  lastSeen: userData.lastSeen,
+                  age: userData.age,
+                  gender: userData.gender as 'male' | 'female' | 'other',
+                  country: userData.country,
+                  countryFlag: userData.countryFlag
+                }
+              };
+              newChats.set(conversationId, updatedChat);
+              console.log(`✅ ChatProvider: Información del usuario actualizada para ${userData.name}`);
+            } else {
+              console.log(`ℹ️ ChatProvider: No hay cambios en la información del usuario ${userData.name}, omitiendo actualización`);
+            }
+          }
+          
+          return newChats;
+        });
+
+        // Forzar re-renderización de la UI
+        setLastUpdateTimestamp(Date.now());
+      } else {
+        console.log(`⚠️ ChatProvider: No se pudo obtener información del usuario ${userId}`);
+      }
+    } catch (error) {
+      console.error(`❌ ChatProvider: Error obteniendo información del usuario ${userId}:`, error);
+    }
   };
 
   // Abrir un chat (crear o recuperar existente)
@@ -257,6 +400,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       
       if (existingChat) {
         console.log(`✅ ChatProvider: Chat existente encontrado: ${existingChat.conversationId}`);
+        
+        // Asegurar que estamos unidos a la conversación
+        await optimizedChatService.joinConversationWhenReady(existingChat.conversationId, 5000);
         
         // Precargar mensajes si están vacíos
         if (existingChat.messages.length === 0) {
@@ -291,11 +437,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isLoading: false,
         lastActivity: new Date(),
         unreadCount: 0,
-        isTyping: false
+        isTyping: false,
+        lastMessagePreview: conversation.lastMessagePreview || 'Iniciar conversación...'
       };
 
       // Agregar al estado y cargar mensajes
       setActiveChats(prev => new Map(prev).set(conversation.conversationId, newChat));
+      
+      // Unirse a la conversación para recibir mensajes en tiempo real
+      await optimizedChatService.joinConversationWhenReady(conversation.conversationId, 5000);
       
       // Cargar mensajes en paralelo
       loadChatMessages(conversation.conversationId);
@@ -325,21 +475,33 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return newChats;
       });
 
-      const messagesResult = await optimizedChatService.getMessages(conversationId, { limit: 50 });
+      // Obtener mensajes desde el caché mejorado primero
+      let cachedMessages = await enhancedCacheService.getMessages(conversationId);
+      
+      // Si no hay mensajes en caché, cargar desde el servidor
+      if (cachedMessages.length === 0) {
+        const messagesResult = await optimizedChatService.getMessages(conversationId, { limit: 50 });
+        cachedMessages = messagesResult.items.reverse(); // Más recientes primero
+        
+        // Guardar en caché mejorado
+        if (cachedMessages.length > 0) {
+          await enhancedCacheService.setMessages(conversationId, cachedMessages);
+        }
+      }
       
       // Actualizar mensajes
       setActiveChats(prev => {
         const newChats = new Map(prev);
         const chat = newChats.get(conversationId);
         if (chat) {
-          chat.messages = messagesResult.items.reverse(); // Más recientes primero
+          chat.messages = cachedMessages;
           chat.isLoading = false;
           newChats.set(conversationId, chat);
         }
         return newChats;
       });
 
-      console.log(`✅ ChatProvider: Mensajes cargados para ${conversationId}: ${messagesResult.items.length}`);
+      console.log(`✅ ChatProvider: Mensajes cargados para ${conversationId}: ${cachedMessages.length}`);
     } catch (error) {
       console.error(`❌ ChatProvider: Error cargando mensajes para ${conversationId}:`, error);
       
@@ -384,29 +546,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         throw new Error('Chat no encontrado');
       }
 
-      // Crear mensaje optimista inmediatamente para mostrar en la UI
-      const optimisticMessage: ChatMessage = {
-        messageId: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        senderId: user!.id,
-        receiverId: chat.otherUser.id,
-        content: messageContent,
-        type: messageType,
-        createdAt: new Date().toISOString(),
-        conversationId,
-        isOptimistic: true
-      };
-
-      // Actualizar estado local inmediatamente
-      setActiveChats(prev => {
-        const newChats = new Map(prev);
-        const updatedChat = newChats.get(conversationId);
-        if (updatedChat) {
-          updatedChat.messages = [optimisticMessage, ...updatedChat.messages];
-          updatedChat.lastActivity = new Date();
-          newChats.set(conversationId, updatedChat);
-        }
-        return newChats;
-      });
+      // No crear mensaje optimista - esperar a que llegue el mensaje real del servidor
 
       // Enviar al servidor
       await optimizedChatService.sendMessage(conversationId, {
@@ -418,18 +558,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.log(`✅ ChatProvider: Mensaje ${messageType} enviado en ${conversationId}`);
     } catch (error) {
       console.error('❌ ChatProvider: Error enviando mensaje:', error);
-      
-      // Remover mensaje optimista en caso de error
-      setActiveChats(prev => {
-        const newChats = new Map(prev);
-        const updatedChat = newChats.get(conversationId);
-        if (updatedChat) {
-          updatedChat.messages = updatedChat.messages.filter(m => !m.isOptimistic);
-          newChats.set(conversationId, updatedChat);
-        }
-        return newChats;
-      });
-      
       throw error;
     }
   };
@@ -620,7 +748,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   // Limpiar al desmontar
-  const cleanup = () => {
+  const cleanup = async () => {
     console.log('🧹 ChatProvider: Limpiando proveedor de chat');
     
     // Cancelar timeouts pendientes
@@ -634,6 +762,13 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       messageListenerAttached.current = false;
     }
     
+    // Ejecutar limpieza del caché mejorado
+    try {
+      await enhancedCacheService.performCleanup();
+    } catch (error) {
+      console.error('Error en limpieza del caché mejorado:', error);
+    }
+    
     setActiveChats(new Map());
     setCurrentChatId(null);
     isInitialized.current = false;
@@ -645,6 +780,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     activeChats,
     currentChatId,
     isGlobalLoading,
+    lastUpdateTimestamp,
     
     // Gestión
     openChat,

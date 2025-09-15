@@ -5,11 +5,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import OptimizedImage from '@/components/OptimizedImage';
 import apiService from '@/services/apiService';
+import { usePrefetch } from '@/contexts/PrefetchContext';
 
 const { width, height } = Dimensions.get('window');
 
 export default function UserProfileScreen() {
   const params = useLocalSearchParams();
+  const { getPrefetchedUser } = usePrefetch();
   
   // Parsear los datos del usuario de los parámetros
   const user = {
@@ -24,6 +26,10 @@ export default function UserProfileScreen() {
     description: params.description as string || 'Usuario de Luna',
   };
 
+  // Intentar obtener datos prefetchados
+  const prefetchedData = getPrefetchedUser(user.id);
+  const hasPrefetchData = !!prefetchedData;
+
   // Estados para acciones
   const [liked, setLiked] = useState(false);
   const [superLiked, setSuperLiked] = useState(false);
@@ -31,31 +37,79 @@ export default function UserProfileScreen() {
   const [starsCount, setStarsCount] = useState(0);
   const [hasGivenSuperLike, setHasGivenSuperLike] = useState(false);
   const [hasActiveConversation, setHasActiveConversation] = useState(false);
+  const [friendRequestStatus, setFriendRequestStatus] = useState<'none' | 'pending' | 'accepted' | 'rejected'>('none');
+  const [isLoadingStatus, setIsLoadingStatus] = useState(true);
+  
+  // Cache simple para evitar llamadas repetidas
+  const [cacheTimestamp, setCacheTimestamp] = useState(0);
+  const CACHE_DURATION = 30000; // 30 segundos
 
-  // Cargar contador de estrellas, estado de super like y verificar conversación activa al montar el componente
+  // Cargar contador de estrellas, estado de super like, estado de solicitud de amistad y verificar conversación activa al montar el componente
   useEffect(() => {
     const loadUserStatus = async () => {
-      try {
-        // Cargar estado de super like
-        const superLikeResponse = await apiService.get(`/users/${user.id}/super-like-status`);
+      // Si tenemos datos prefetchados, usarlos inmediatamente
+      if (hasPrefetchData && prefetchedData) {
+        console.log('📦 Usando datos prefetchados para carga instantánea');
         
-        if (superLikeResponse.success) {
-          setStarsCount(superLikeResponse.data?.starsCount || 0);
-          setHasGivenSuperLike(superLikeResponse.data?.hasGivenSuperLike || false);
-          setSuperLiked(superLikeResponse.data?.hasGivenSuperLike || false);
+        // Aplicar datos prefetchados inmediatamente
+        const { superLike, friendRequest, conversation } = prefetchedData.prefetchData;
+        
+        setStarsCount(superLike.starsCount || 0);
+        setHasGivenSuperLike(superLike.hasGivenSuperLike || false);
+        setSuperLiked(superLike.hasGivenSuperLike || false);
+        setFriendRequestStatus(friendRequest.status);
+        setHasActiveConversation(conversation.hasActiveConversation);
+        
+        if (friendRequest.status === 'accepted') {
+          setFriends(true);
+        }
+        
+        setIsLoadingStatus(false);
+        return; // No hacer llamadas API adicionales
+      }
+
+      // Si no hay datos prefetchados, usar el método tradicional
+      console.log('🔄 Cargando datos del usuario desde API...');
+      
+      // Verificar cache antes de hacer llamadas API
+      const now = Date.now();
+      if (now - cacheTimestamp < CACHE_DURATION && cacheTimestamp > 0) {
+        setIsLoadingStatus(false);
+        return;
+      }
+
+      setIsLoadingStatus(true);
+      
+      try {
+        // Usar el nuevo endpoint optimizado que obtiene toda la información en una sola llamada
+        const profileInfoResponse = await apiService.get(`/profiles/${user.id}/info`);
+        
+        if (profileInfoResponse.success && profileInfoResponse.data) {
+          const { user: userData, superLike, friendRequest, conversation } = profileInfoResponse.data;
+          
+          // Actualizar estado de super like
+          if (superLike) {
+            setStarsCount(superLike.starsCount || 0);
+            setHasGivenSuperLike(superLike.hasGivenSuperLike || false);
+            setSuperLiked(superLike.hasGivenSuperLike || false);
+          }
+          
+          // Actualizar estado de solicitud de amistad
+          if (friendRequest) {
+            setFriendRequestStatus(friendRequest.status);
+            if (friendRequest.status === 'accepted') {
+              setFriends(true);
+            }
+          }
+          
+          // Actualizar estado de conversación
+          if (conversation) {
+            setHasActiveConversation(conversation.hasActiveConversation);
+          }
+        } else {
+          throw new Error('Error en la respuesta del servidor');
         }
 
-        // Verificar si hay conversación activa
-        // Listamos todas las conversaciones y verificamos si existe una con este usuario
-        const conversationsResponse = await apiService.get('/chat/conversations');
-        
-        if (conversationsResponse.success && conversationsResponse.data?.conversations) {
-          // Verificar si existe una conversación con este usuario
-          const hasConversationWithUser = conversationsResponse.data.conversations.some((conv: any) => {
-            return conv.participants && conv.participants.includes(user.id);
-          });
-          setHasActiveConversation(hasConversationWithUser);
-        }
       } catch (error) {
         console.error('Error cargando estado del usuario:', error);
         // En caso de error, mantener valores por defecto
@@ -63,11 +117,15 @@ export default function UserProfileScreen() {
         setHasGivenSuperLike(false);
         setSuperLiked(false);
         setHasActiveConversation(false);
+        setFriendRequestStatus('none');
+      } finally {
+        setIsLoadingStatus(false);
+        setCacheTimestamp(Date.now());
       }
     };
 
     loadUserStatus();
-  }, [user.id]);
+  }, [user.id, hasPrefetchData, prefetchedData]);
 
   const handleGoBack = () => {
     router.back();
@@ -106,9 +164,26 @@ export default function UserProfileScreen() {
     }
   };
 
-  const handleMore = () => {
-    setFriends(prev => !prev);
-    console.log('Toggle friends for user:', user.name);
+  const handleMore = async () => {
+    try {
+      // Solo enviar solicitud si no hay una pendiente o aceptada
+      if (friendRequestStatus === 'pending' || friendRequestStatus === 'accepted') {
+        console.log('Ya existe una solicitud de amistad con este usuario');
+        return;
+      }
+
+      // Enviar solicitud de amistad al backend
+      const response = await apiService.post(`/friend-requests/send/${user.id}`, {});
+      
+      if (response.success) {
+        setFriendRequestStatus('pending');
+        console.log('Solicitud de amistad enviada exitosamente a:', user.name);
+      } else {
+        console.error('Error en respuesta del servidor:', response.message);
+      }
+    } catch (error) {
+      console.error('Error enviando solicitud de amistad:', error);
+    }
   };
 
   const getInitials = (name: string) => {
@@ -119,6 +194,37 @@ export default function UserProfileScreen() {
       .join('')
       .toUpperCase()
       .slice(0, 2);
+  };
+
+  // Función auxiliar para obtener el estado del icono de solicitud de amistad
+  // Estados del icono:
+  // - 'accepted': Icono relleno verde (#4CAF50) - Son amigos
+  // - 'pending': Icono relleno blanco (#FFFFFF) - Solicitud pendiente
+  // - 'rejected': Icono outline gris (#999999) - Solicitud rechazada
+  // - 'none': Icono outline blanco (#FFFFFF) - Sin solicitud
+  const getFriendRequestIconState = () => {
+    switch (friendRequestStatus) {
+      case 'accepted':
+        return {
+          name: 'people' as const,
+          color: '#4CAF50' // Verde para amigos
+        };
+      case 'pending':
+        return {
+          name: 'people' as const,
+          color: '#FFFFFF' // Blanco para solicitud pendiente
+        };
+      case 'rejected':
+        return {
+          name: 'people-outline' as const,
+          color: '#999999' // Gris para rechazada
+        };
+      default:
+        return {
+          name: 'people-outline' as const,
+          color: '#FFFFFF' // Blanco por defecto
+        };
+    }
   };
 
   const cardWidth = width - 32;
@@ -179,7 +285,11 @@ export default function UserProfileScreen() {
           </View>
         </TouchableOpacity>
         <TouchableOpacity onPress={handleMore} style={styles.actionIconButton}>
-          <Ionicons name={friends ? 'people' : 'people-outline'} size={28} color={friends ? '#4CAF50' : '#FFFFFF'} />
+          <Ionicons 
+            name={getFriendRequestIconState().name}
+            size={28} 
+            color={getFriendRequestIconState().color}
+          />
         </TouchableOpacity>
       </View>
 

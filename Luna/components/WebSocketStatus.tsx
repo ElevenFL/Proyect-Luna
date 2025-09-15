@@ -143,6 +143,17 @@ export const WebSocketStatus: React.FC<WebSocketStatusProps> = ({ showDetails = 
           >
             <Text style={styles.debugButtonText}>Reset CircuitBreaker</Text>
           </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.debugButton, { backgroundColor: '#FF5722' }]}
+            onPress={() => {
+              socketService.clearConnectionQueue();
+              setConnectionStatus(socketService.getConnectionStatus());
+              smartLog.info('WebSocketStatus: Cola de conexiones limpiada');
+            }}
+          >
+            <Text style={styles.debugButtonText}>Limpiar Cola</Text>
+          </TouchableOpacity>
         </View>
       )}
 

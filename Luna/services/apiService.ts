@@ -266,7 +266,8 @@ class ApiService {
               }
             }
 
-            return { success: true, data: data.data || data };
+            // Devolver la respuesta completa, no solo los datos
+            return { success: true, data: data.data || data, ...data };
           } catch (error) {
             lastError = error;
             clearTimeout(timeoutId);
@@ -510,7 +511,7 @@ class ApiService {
     profileImage?: string;
     profileCompleted?: boolean;
   }>> {
-    return this.get('/profile');
+    return this.get('/profiles');
   }
 
   /**
@@ -528,28 +529,28 @@ class ApiService {
     profileImage?: string;
     profileCompleted?: boolean;
   }): Promise<ApiResponse<{ success: boolean; updatedFields: string[] }>> {
-    return this.put('/profile', profileData);
+    return this.put('/profiles', profileData);
   }
 
   /**
    * Actualiza solo el nombre del usuario
    */
   public async updateName(displayName: string): Promise<ApiResponse<{ success: boolean }>> {
-    return this.put('/profile', { displayName });
+    return this.put('/profiles', { displayName });
   }
 
   /**
    * Actualiza solo la fecha de nacimiento del usuario
    */
   public async updateBirthDate(birthDate: string): Promise<ApiResponse<{ success: boolean }>> {
-    return this.put('/profile', { birthDate });
+    return this.put('/profiles', { birthDate });
   }
 
   /**
    * Actualiza solo el género del usuario
    */
   public async updateGender(gender: string): Promise<ApiResponse<{ success: boolean }>> {
-    return this.put('/profile', { gender });
+    return this.put('/profiles', { gender });
   }
 
   /**
@@ -560,21 +561,21 @@ class ApiService {
     longitude?: number;
     address?: string;
   }): Promise<ApiResponse<{ success: boolean }>> {
-    return this.put('/profile', { location });
+    return this.put('/profiles', { location });
   }
 
   /**
    * Actualiza solo la foto de perfil del usuario
    */
   public async updateProfileImage(profileImage: string): Promise<ApiResponse<{ success: boolean }>> {
-    return this.put('/profile', { profileImage });
+    return this.put('/profiles', { profileImage });
   }
 
   /**
    * Marca el perfil como completado
    */
   public async markProfileCompleted(): Promise<ApiResponse<{ success: boolean }>> {
-    return this.put('/profile', { profileCompleted: true });
+    return this.put('/profiles', { profileCompleted: true });
   }
 
   /**
@@ -671,6 +672,32 @@ class ApiService {
   }
 
   /**
+   * Obtiene información completa de un usuario por su ID
+   */
+  public async getUserById(userId: string): Promise<ApiResponse<{
+    user: {
+      id: string;
+      name: string;
+      username: string;
+      email: string;
+      profileImage?: string;
+      age?: number;
+      gender: string;
+      country: string;
+      countryFlag: string;
+      description: string;
+      isOnline: boolean;
+      lastSeen?: string;
+      lastConnection?: string;
+      birthDate?: string;
+      location?: any;
+      profileCompleted: boolean;
+    };
+  }>> {
+    return this.get(`/users/${userId}`);
+  }
+
+  /**
    * Marca mensajes como leídos
    */
   public async markMessagesAsRead(conversationId: string, messageIds: string[]): Promise<ApiResponse<{ success: boolean; message: string }>> {
@@ -684,6 +711,7 @@ class ApiService {
   public async getHomeUsers(): Promise<ApiResponse<any[]>> {
     return this.get('/users/home');
   }
+
 
   /**
    * Actualiza el estado de conexión del usuario actual

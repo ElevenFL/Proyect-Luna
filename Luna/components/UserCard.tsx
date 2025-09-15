@@ -108,12 +108,33 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress }) => {
         <View style={styles.userInfo}>
           <View style={styles.nameRow}>
             <Text style={styles.userName}>{user.name}</Text>
-            <View style={styles.genderAgeContainer}>
-              <Text style={[styles.genderIcon, { color: getGenderColor() }]}>
-                {getGenderIcon()}
-              </Text>
-              <Text style={styles.age}>{user.age}</Text>
-              <Text style={styles.countryFlag}>{user.countryFlag}</Text>
+            <View style={styles.visualInfoContainer}>
+              {/* Género */}
+              {user.gender && (
+                <View style={[styles.infoBadge, { backgroundColor: getGenderColor() }]}>
+                  <Text style={styles.infoBadgeText}>
+                    {getGenderIcon()}
+                  </Text>
+                </View>
+              )}
+              
+              {/* Edad */}
+              {user.age && (
+                <View style={styles.infoBadge}>
+                  <Text style={styles.infoBadgeText}>
+                    {user.age}
+                  </Text>
+                </View>
+              )}
+              
+              {/* País */}
+              {(user.countryFlag || user.country) && (
+                <View style={styles.countryBadge}>
+                  <Text style={styles.countryFlagText}>
+                    {user.countryFlag || '🌍'}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
           
@@ -124,9 +145,11 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress }) => {
 
         {/* Online Status */}
         <View style={styles.statusContainer}>
-          <Text style={[styles.statusText, { color: user.isOnline ? '#4CAF50' : '#ADB5BD' }]}>
-            {user.isOnline ? 'Online' : (user.lastConnection ? getTimeAgo(user.lastConnection) : 'Offline')}
-          </Text>
+          <View style={styles.statusTextContainer}>
+            <Text style={[styles.statusText, { color: user.isOnline ? '#4CAF50' : '#ADB5BD' }]}>
+              {user.isOnline ? 'Online' : (user.lastConnection ? getTimeAgo(user.lastConnection) : 'Offline')}
+            </Text>
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -181,6 +204,7 @@ const styles = StyleSheet.create({
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 4,
   },
   userName: {
@@ -189,21 +213,41 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginRight: 8,
   },
-  genderAgeContainer: {
+  visualInfoContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    flex: 1,
+    justifyContent: 'flex-end',
   },
-  genderIcon: {
-    fontSize: 14,
-    marginRight: 4,
-  },
-  age: {
-    fontSize: 14,
-    color: '#FFFFFF',
+  infoBadge: {
+    backgroundColor: '#2a2a2a',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     marginRight: 6,
+    marginBottom: 4,
+    minWidth: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  countryFlag: {
-    fontSize: 16,
+  infoBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  countryBadge: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginRight: 6,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: '#333333',
+  },
+  countryFlagText: {
+    fontSize: 14,
   },
   description: {
     fontSize: 12,
@@ -212,7 +256,12 @@ const styles = StyleSheet.create({
   },
   statusContainer: {
     alignItems: 'flex-end',
-    marginTop: -35,
+    marginTop: -20,
+    minWidth: 80,
+  },
+  statusTextContainer: {
+    alignItems: 'flex-end',
+    minWidth: 60,
   },
   statusText: {
     fontSize: 12,

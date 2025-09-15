@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Dimensions
 import { Ionicons } from '@expo/vector-icons';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import { User } from './UserCard';
+import { getCountryFlag } from '@/utils/countryFlags';
 
 const { height: screenHeight } = Dimensions.get('window');
 
@@ -20,16 +21,31 @@ interface FilterModalProps {
   availableCountries?: string[];
 }
 
-// Lista de países disponibles
+// Lista de países ordenada alfabéticamente con sus banderas disponibles
 const DEFAULT_COUNTRIES = [
-  'Argentina', 'Australia', 'Austria', 'Belgium', 'Brazil', 'Canada', 'Chile', 'China',
-  'Colombia', 'Croatia', 'Czech Republic', 'Denmark', 'Egypt', 'Finland', 'France',
-  'Germany', 'Greece', 'Hungary', 'India', 'Indonesia', 'Ireland', 'Israel', 'Italy',
-  'Japan', 'Malaysia', 'Mexico', 'Netherlands', 'New Zealand', 'Norway', 'Peru',
-  'Poland', 'Portugal', 'Romania', 'Russia', 'Singapore', 'South Korea', 'Spain',
-  'Sweden', 'Switzerland', 'Thailand', 'Turkey', 'Ukraine', 'United Kingdom',
-  'United States', 'Venezuela'
+  'Algeria', 'Argentina', 'Australia', 'Austria',
+  'Bangladesh', 'Belgium', 'Bolivia', 'Botswana', 'Brazil', 'Bulgaria',
+  'Cambodia', 'Cameroon', 'Canada', 'Chile', 'China', 'Colombia', 'Costa Rica', 'Croatia', 'Cuba',
+  'Czech Republic', 'Denmark', 'Dominican Republic',
+  'Ecuador', 'Egypt', 'El Salvador', 'Ethiopia',
+  'Fiji', 'Finland', 'France',
+  'Germany', 'Ghana', 'Greece', 'Guatemala',
+  'Haiti', 'Honduras', 'Hong Kong', 'Hungary',
+  'India', 'Indonesia', 'Iran', 'Iraq', 'Ireland', 'Israel', 'Italy',
+  'Jamaica', 'Japan', 'Jordan',
+  'Kazakhstan', 'Kenya', 'Korea', 'Kuwait',
+  'Laos', 'Lebanon', 'Libya',
+  'Malaysia', 'Mongolia', 'Morocco', 'Mozambique', 'Myanmar',
+  'Namibia', 'Nepal', 'Netherlands', 'New Zealand', 'Nicaragua', 'Nigeria', 'Norway',
+  'Pakistan', 'Panama', 'Papua New Guinea', 'Paraguay', 'Peru', 'Philippines', 'Poland', 'Portugal',
+  'Romania', 'Russia',
+  'Samoa', 'Saudi Arabia', 'Senegal', 'Serbia', 'Singapore', 'South Africa', 'South Korea', 'Spain', 'Sri Lanka', 'Sweden', 'Switzerland', 'Syria',
+  'Taiwan', 'Thailand', 'Trinidad and Tobago', 'Tunisia', 'Turkey',
+  'Uganda', 'Ukraine', 'United Arab Emirates', 'United Kingdom', 'United States', 'Uruguay', 'Uzbekistan',
+  'Vanuatu', 'Venezuela', 'Vietnam',
+  'Zambia', 'Zimbabwe'
 ];
+
 
 export const FilterModal: React.FC<FilterModalProps> = ({
   visible,
@@ -120,12 +136,7 @@ export const FilterModal: React.FC<FilterModalProps> = ({
           style={styles.modalContainer}
           onPress={(e) => e.stopPropagation()}
         >
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerSpacer} />
-            <Text style={styles.title}>Filtros</Text>
-            <View style={styles.headerSpacer} />
-          </View>
+
 
           <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
             {/* Rango de Edad */}
@@ -227,6 +238,7 @@ export const FilterModal: React.FC<FilterModalProps> = ({
                             <Ionicons name="checkmark" size={16} color="#000000" />
                           )}
                         </View>
+                        <Text style={styles.countryFlag}>{getCountryFlag(country)}</Text>
                         <Text style={styles.countryText}>{country}</Text>
                       </View>
                     </TouchableOpacity>
@@ -242,7 +254,7 @@ export const FilterModal: React.FC<FilterModalProps> = ({
               <Text style={styles.cancelButtonText}>Cancelar</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.applyButton} onPress={handleApplyFilters}>
-              <Text style={styles.applyButtonText}>Aplicar Filtros</Text>
+              <Text style={styles.applyButtonText}>Aplicar</Text>
             </TouchableOpacity>
           </View>
         </Pressable>
@@ -254,16 +266,27 @@ export const FilterModal: React.FC<FilterModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
   modalContainer: {
     backgroundColor: '#1a1a1a',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
+    borderWidth: 1,
+    borderColor: '#333333',
     maxHeight: screenHeight * 0.9,
     minHeight: screenHeight * 0.75,
     height: screenHeight * 0.75,
+    // Sombra para iOS
+    shadowColor: '#000000',
+    shadowOffset: {
+      width: 0,
+      height: -10,
+    },
+    shadowOpacity: 0.7,
+    shadowRadius: 20,
+    // Elevación para Android
+    elevation: 20,
   },
   header: {
     flexDirection: 'row',
@@ -290,6 +313,7 @@ const styles = StyleSheet.create({
     marginVertical: 10,
   },
   sectionTitle: {
+    paddingTop: 10,
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
@@ -356,12 +380,13 @@ const styles = StyleSheet.create({
   genderContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 16,
+    justifyContent: 'center',
   },
   genderButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2a2a2a',
+    backgroundColor: '#2f2f2f',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 16,
@@ -436,6 +461,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD700',
     borderColor: '#FFD700',
   },
+  countryFlag: {
+    fontSize: 18,
+    marginRight: 8,
+  },
   countryText: {
     fontSize: 14,
     color: '#FFFFFF',
@@ -444,7 +473,7 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 10,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.1)',
     gap: 12,

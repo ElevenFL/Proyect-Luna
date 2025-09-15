@@ -8,6 +8,7 @@ import FilterModal, { FilterOptions } from '@/components/FilterModal';
 import ApiService from '@/services/apiService';
 import { getFlagFromAddress } from '@/utils/countryFlags';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePrefetch, UserWithPrefetch } from '@/contexts/PrefetchContext';
 
 // Datos de ejemplo de usuarios con información de conexión y ubicaciones reales
 const createMockUsers = (): User[] => {
@@ -112,6 +113,7 @@ const createMockUsers = (): User[] => {
 
 export default function HomeScreen() {
   const { user: currentUser } = useAuth();
+  const { setPrefetchedUsers } = usePrefetch();
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -178,11 +180,17 @@ export default function HomeScreen() {
       console.log('🔄 Cargando usuarios desde el API...');
       
       const response = await ApiService.getHomeUsers();
+      
       if (response.success && response.data) {
-        console.log('✅ Usuarios cargados desde el API:', response.data.length);
+        const users = response.data || [];
+        const prefetchingInfo = (response as any).prefetching;
+        
+        console.log('✅ Usuarios cargados desde el API:', users.length);
+        console.log('📦 Prefetching habilitado:', prefetchingInfo?.enabled);
+        console.log('📦 Datos de prefetching:', prefetchingInfo);
         
         // Asegurar que todos los usuarios tengan bandera correcta
-        const usersWithFlags = response.data.map((user: User) => ({
+        const usersWithFlags = users.map((user: UserWithPrefetch) => ({
           ...user,
           countryFlag: user.countryFlag || getFlagFromAddress(user.country)
         }));
@@ -190,6 +198,12 @@ export default function HomeScreen() {
         // Filtrar usuario actual como medida de seguridad adicional
         const filteredUsers = filterCurrentUser(usersWithFlags);
         console.log(`🔍 Filtrado adicional en frontend: ${usersWithFlags.length} -> ${filteredUsers.length} usuarios`);
+        
+        // Almacenar datos prefetchados para navegación rápida
+        if (prefetchingInfo?.enabled) {
+          setPrefetchedUsers(filteredUsers as UserWithPrefetch[]);
+          console.log('📦 Datos prefetchados almacenados para navegación rápida');
+        }
         
         const sortedUsers = sortUsersByConnection(filteredUsers);
         setUsers(sortedUsers);
@@ -199,6 +213,7 @@ export default function HomeScreen() {
         setFilteredUsers(filteredByCriteria);
       } else {
         console.log('⚠️ No se pudieron cargar usuarios del API, usando datos mock');
+        console.log('⚠️ Respuesta del API:', response);
         const mockUsers = createMockUsers();
         const filteredMockUsers = filterCurrentUser(mockUsers);
         const sortedUsers = sortUsersByConnection(filteredMockUsers);
@@ -237,6 +252,13 @@ export default function HomeScreen() {
 
   const handleUserPress = (user: User) => {
     console.log('User pressed:', user.name);
+    
+    // Verificar si el usuario tiene datos prefetchados
+    const userWithPrefetch = user as UserWithPrefetch;
+    const hasPrefetchData = userWithPrefetch.prefetchData;
+    
+    console.log('📦 Datos prefetchados disponibles:', !!hasPrefetchData);
+    
     // Navegar al perfil del usuario
     router.push({
       pathname: '/user-profile',
@@ -251,6 +273,10 @@ export default function HomeScreen() {
         isOnline: user.isOnline.toString(),
         description: user.description,
         lastConnection: user.lastConnection || '',
+        // Incluir datos prefetchados si están disponibles
+        ...(hasPrefetchData && {
+          prefetchData: JSON.stringify(userWithPrefetch.prefetchData)
+        })
       }
     });
   };
@@ -271,7 +297,7 @@ export default function HomeScreen() {
 
   const handleNotificationPress = () => {
     console.log('Notifications pressed');
-    // Navegar a notificaciones
+    router.push('/(tabs)/notifications');
   };
 
   const renderUserItem = ({ item }: { item: User }) => (

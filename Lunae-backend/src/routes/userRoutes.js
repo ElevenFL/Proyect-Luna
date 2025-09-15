@@ -4,6 +4,9 @@ import { User } from "../models/Users.js";
 import { auth } from "../middleware/auth.js";
 import { getFlagFromAddress } from "../utils/countryFlags.js";
 import { giveSuperLike, checkSuperLikeStatus } from "../controllers/profileController.js";
+import { sendFriendRequest } from "../controllers/friendRequestController.js";
+import { FriendRequest } from "../models/FriendRequest.js";
+import { Chat } from "../models/Chat.js";
 
 const router = express.Router();
 
@@ -528,46 +531,171 @@ router.get("/profile-status", auth, async (req, res) => {
   }
 });
 
-// GET usuarios ordenados por conexión (para el home)
+// GET usuarios ordenados por conexión (para el home) con prefetching de información de perfiles
 router.get("/home", auth, async (req, res) => {
   try {
     const currentUserId = req.user.id;
-    console.log('🏠 Obteniendo usuarios ordenados por conexión para el home...');
+    console.log('🏠 Obteniendo usuarios para el home...');
     console.log('👤 Usuario actual (excluir de la lista):', currentUserId);
     
+    // Primero, obtener solo usuarios para verificar que funciona
+    console.log('🔄 Obteniendo usuarios básicos...');
     const users = await User.findUsersOrderedByConnection();
-    
+    console.log('📊 Usuarios obtenidos:', users.length);
+
+    // Verificar si tenemos usuarios
+    if (!users || users.length === 0) {
+      console.log('⚠️ No se encontraron usuarios, devolviendo respuesta sin prefetching');
+      return res.json({
+        success: true,
+        message: "No hay usuarios disponibles",
+        data: [],
+        prefetching: {
+          enabled: false,
+          reason: "no_users_found"
+        }
+      });
+    }
+
     // Filtrar el usuario actual de la lista
     const filteredUsers = users.filter(user => user.id !== currentUserId);
     console.log(`🔍 Usuarios filtrados: ${users.length} -> ${filteredUsers.length} (excluido usuario actual)`);
-    
-    // Formatear datos para el frontend
-    const formattedUsers = filteredUsers.map(user => {
-      // Obtener la bandera basada en la ubicación del usuario
-      const countryFlag = getFlagFromAddress(user.location?.address);
+
+    // Intentar prefetching solo si tenemos usuarios
+    let prefetchingEnabled = false;
+    let allFriendRequests = [];
+    let conversations = [];
+    let prefetchingError = null;
+
+    try {
+      console.log('🔄 Intentando prefetching...');
+      const [friendRequestsResult, conversationsResult] = await Promise.allSettled([
+        FriendRequest.findAll(),
+        Chat.listUserConversations(currentUserId)
+      ]);
+
+      allFriendRequests = friendRequestsResult.status === 'fulfilled' ? friendRequestsResult.value : [];
+      conversations = conversationsResult.status === 'fulfilled' ? conversationsResult.value.items : [];
       
-      return {
-        id: user.id,
-        name: user.displayName || user.username,
-        age: user.birthDate ? Math.floor((Date.now() - new Date(user.birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : null,
-        gender: user.gender,
-        profileImage: user.profileImage,
-        country: user.location?.address || 'Unknown',
-        countryFlag: countryFlag,
-        isOnline: user.isOnline,
-        description: user.displayName ? `Usuario activo en Lunea` : 'Nuevo en Lunea',
-        lastConnection: user.lastConnection,
-        connectionPriority: user.connectionPriority
-      };
-    }).filter(user => user.age !== null); // Solo usuarios con edad válida
+      console.log('📊 Prefetching resultados:');
+      console.log('  - FriendRequests:', allFriendRequests.length);
+      console.log('  - Conversations:', conversations.length);
+      
+      prefetchingEnabled = true;
+      console.log('✅ Prefetching habilitado exitosamente');
+    } catch (prefetchError) {
+      console.warn('⚠️ Error en prefetching, continuando sin él:', prefetchError.message);
+      prefetchingEnabled = false;
+      prefetchingError = prefetchError.message;
+    }
+
+    // Crear mapas para búsqueda rápida si el prefetching está habilitado
+    const friendRequestMap = new Map();
+    const conversationMap = new Map();
+
+    if (prefetchingEnabled) {
+      allFriendRequests.forEach(request => {
+        const key = `${request.senderId}-${request.receiverId}`;
+        const reverseKey = `${request.receiverId}-${request.senderId}`;
+        friendRequestMap.set(key, request);
+        friendRequestMap.set(reverseKey, request);
+      });
+
+      conversations.forEach(conv => {
+        if (conv.participants) {
+          conv.participants.forEach(participantId => {
+            conversationMap.set(participantId, conv);
+          });
+        }
+      });
+    }
+
+    // Formatear usuarios
+    const formattedUsers = await Promise.all(
+      filteredUsers.map(async user => {
+        // Obtener la bandera basada en la ubicación del usuario
+        const countryFlag = getFlagFromAddress(user.location?.address);
+        
+        const baseUser = {
+          id: user.id,
+          name: user.displayName || user.username,
+          age: user.birthDate ? Math.floor((Date.now() - new Date(user.birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : null,
+          gender: user.gender,
+          profileImage: user.profileImage,
+          country: user.location?.country || 'Unknown',
+          countryFlag: countryFlag,
+          isOnline: user.isOnline,
+          description: user.description || (user.displayName ? `Usuario activo en Lunea` : 'Nuevo en Lunea'),
+          lastConnection: user.lastConnection,
+          connectionPriority: user.connectionPriority
+        };
+
+        // Agregar prefetching solo si está habilitado
+        if (prefetchingEnabled) {
+          let hasGivenSuperLike = false;
+          let friendRequestStatus = 'none';
+          let hasActiveConversation = false;
+
+          try {
+            // Verificar estado de super like
+            hasGivenSuperLike = await User.hasGivenSuperLike(currentUserId, user.id);
+            
+            // Verificar estado de solicitud de amistad
+            const friendRequestKey = `${currentUserId}-${user.id}`;
+            const reverseFriendRequestKey = `${user.id}-${currentUserId}`;
+            const relatedFriendRequest = friendRequestMap.get(friendRequestKey) || friendRequestMap.get(reverseFriendRequestKey);
+            friendRequestStatus = relatedFriendRequest ? relatedFriendRequest.status : 'none';
+            
+            // Verificar conversación activa
+            hasActiveConversation = conversationMap.has(user.id);
+          } catch (prefetchError) {
+            console.warn(`⚠️ Error en prefetching para usuario ${user.id}:`, prefetchError.message);
+          }
+
+          return {
+            ...baseUser,
+            prefetchData: {
+              superLike: {
+                starsCount: user.starsCount || 0,
+                hasGivenSuperLike: hasGivenSuperLike
+              },
+              friendRequest: {
+                status: friendRequestStatus
+              },
+              conversation: {
+                hasActiveConversation: hasActiveConversation
+              }
+            }
+          };
+        } else {
+          return baseUser;
+        }
+      })
+    );
+
+    // Filtrar solo usuarios con edad válida
+    const validUsers = formattedUsers.filter(user => user.age !== null);
     
-    console.log(`✅ Encontrados ${formattedUsers.length} usuarios para el home`);
+    console.log(`✅ Encontrados ${validUsers.length} usuarios para el home`);
+    console.log(`📦 Prefetching habilitado: ${prefetchingEnabled}`);
     
-    res.json({
+    const response = {
       success: true,
-      message: "Usuarios obtenidos exitosamente",
-      data: formattedUsers
-    });
+      message: prefetchingEnabled 
+        ? "Usuarios obtenidos exitosamente con prefetching" 
+        : "Usuarios obtenidos (prefetching deshabilitado por error)",
+      data: validUsers,
+      prefetching: {
+        enabled: prefetchingEnabled,
+        includes: prefetchingEnabled ? ['superLike', 'friendRequest', 'conversation'] : [],
+        usersCount: validUsers.length,
+        ...(prefetchingError && { error: prefetchingError })
+      }
+    };
+
+    console.log('📤 Respuesta enviada con prefetching:', prefetchingEnabled);
+    
+    res.json(response);
   } catch (error) {
     console.error("❌ Error obteniendo usuarios para el home:", error);
     
@@ -710,5 +838,88 @@ router.post('/:userId/super-like', auth, giveSuperLike);
 
 // Ruta para verificar el estado de super like
 router.get('/:userId/super-like-status', auth, checkSuperLikeStatus);
+
+// POST /api/users/:userId/friend-request - Enviar solicitud de amistad
+router.post('/:userId/friend-request', auth, sendFriendRequest);
+
+// GET usuario por ID (debe ir al final para evitar conflictos con rutas específicas)
+router.get("/:userId", auth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    console.log(`👤 Obteniendo información del usuario: ${userId}`);
+
+    // Buscar el usuario
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log('❌ Usuario no encontrado:', userId);
+      return res.status(404).json({ 
+        success: false,
+        message: 'Usuario no encontrado',
+        error: 'USER_NOT_FOUND'
+      });
+    }
+
+    // Calcular edad si tiene fecha de nacimiento
+    let age = null;
+    if (user.birthDate) {
+      const birthDate = new Date(user.birthDate);
+      const today = new Date();
+      age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+    }
+
+    // Obtener bandera del país si tiene ubicación
+    let countryFlag = '🌍';
+    if (user.location?.address) {
+      try {
+        countryFlag = getFlagFromAddress(user.location.address);
+      } catch (error) {
+        console.log('⚠️ Error obteniendo bandera del país:', error.message);
+      }
+    }
+
+    // Preparar respuesta con información del usuario
+    const userInfo = {
+      id: user.id,
+      name: user.displayName || user.username,
+      username: user.username,
+      email: user.email,
+      profileImage: user.profileImage,
+      age: age,
+      gender: user.gender,
+      country: user.location?.address || 'Unknown',
+      countryFlag: countryFlag,
+      description: user.description || '',
+      isOnline: user.isOnline || false,
+      lastSeen: user.lastSeen,
+      lastConnection: user.lastConnection,
+      birthDate: user.birthDate,
+      location: user.location,
+      profileCompleted: user.profileCompleted || false
+    };
+
+    console.log(`✅ Información del usuario obtenida: ${userInfo.name}`);
+
+    res.json({
+      success: true,
+      data: {
+        user: userInfo
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error obteniendo información del usuario:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Error interno del servidor",
+      error: "SERVER_ERROR"
+    });
+  }
+});
 
 export default router;

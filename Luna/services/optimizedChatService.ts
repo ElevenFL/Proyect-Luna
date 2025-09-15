@@ -1,6 +1,7 @@
 import ApiService from './apiService';
 import { socketService } from './socketService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import enhancedCacheService from './enhancedCacheService';
 
 export interface ChatMessage {
   messageId: string;
@@ -50,7 +51,6 @@ class OptimizedChatService {
   private readonly CACHE_KEY = 'optimized_chat_cache';
   private readonly SYNC_DEBOUNCE_MS = 500;
   private readonly CACHE_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutos
-  private readonly TEMP_MESSAGE_AGE_LIMIT = 30000; // 30 segundos
   
   private syncTimeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private cacheCleanupInterval: ReturnType<typeof setInterval> | null = null;
@@ -82,7 +82,10 @@ class OptimizedChatService {
         console.warn('⚠️ OptimizedChat: No hay token disponible durante la inicialización');
       }
       
-      // Cargar caché desde AsyncStorage
+      // Inicializar el servicio de caché mejorado
+      await enhancedCacheService.initialize();
+      
+      // Cargar caché desde AsyncStorage (mantener compatibilidad)
       await this.loadCacheFromStorage();
       
       // Configurar listeners de WebSocket
@@ -122,6 +125,18 @@ class OptimizedChatService {
   getCachedMessages(conversationId: string): ChatMessage[] {
     const cachedConv = this.conversations.get(conversationId);
     return cachedConv ? [...cachedConv.messages] : [];
+  }
+
+  /**
+   * Obtiene mensajes desde el caché mejorado (asíncrono, más completo)
+   */
+  async getEnhancedCachedMessages(conversationId: string): Promise<ChatMessage[]> {
+    try {
+      return await enhancedCacheService.getMessages(conversationId);
+    } catch (error) {
+      console.error('Error obteniendo mensajes del caché mejorado:', error);
+      return this.getCachedMessages(conversationId); // Fallback al caché local
+    }
   }
 
   /**
@@ -265,29 +280,22 @@ class OptimizedChatService {
     type?: 'text' | 'image';
   }): Promise<any> {
     try {
-      // Añadir mensaje optimista al caché inmediatamente
-      const optimisticMessage: ChatMessage = {
-        messageId: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        senderId: this.currentUserId!,
-        receiverId: data.receiverId,
-        content: data.content,
-        type: data.type || 'text',
-        createdAt: new Date().toISOString(),
-        conversationId,
-        isOptimistic: true
-      };
+      console.log(`📤 OptimizedChat: Enviando mensaje a conversación ${conversationId}`);
+      
+      // Asegurar que estamos unidos a la conversación antes de enviar
+      const joined = await this.ensureJoinedToConversation(conversationId);
+      if (!joined) {
+        console.warn(`⚠️ OptimizedChat: No se pudo unir a conversación ${conversationId}, enviando de todas formas`);
+      }
 
-      this.addMessageToCache(conversationId, optimisticMessage);
-
-      // Enviar al servidor
+      // Enviar al servidor (sin mensajes optimistas)
       const response = await ApiService.sendMessage(conversationId, data);
       
-      // Remover mensaje optimista y añadir el real cuando llegue por WebSocket
+      console.log(`✅ OptimizedChat: Mensaje enviado exitosamente a conversación ${conversationId}`);
+      
       return response.data;
     } catch (error) {
       console.error('❌ OptimizedChat: Error enviando mensaje:', error);
-      // Remover mensaje optimista en caso de error
-      this.removeOptimisticMessage(conversationId, data.content);
       throw error;
     }
   }
@@ -297,6 +305,35 @@ class OptimizedChatService {
    */
   joinConversation(conversationId: string): void {
     socketService.joinConversation(conversationId);
+  }
+
+  /**
+   * Asegura que estamos unidos a una conversación antes de enviar mensajes
+   */
+  private async ensureJoinedToConversation(conversationId: string): Promise<boolean> {
+    try {
+      console.log(`🔗 OptimizedChat: Asegurando unión a conversación ${conversationId}`);
+      
+      // Verificar si ya estamos unidos
+      const joinedConversations = socketService.getJoinedConversations();
+      if (joinedConversations.includes(conversationId)) {
+        console.log(`✅ OptimizedChat: Ya unido a conversación ${conversationId}`);
+        return true;
+      }
+
+      // Unirse a la conversación
+      const joined = await socketService.joinConversationWhenReady(conversationId, 5000);
+      if (joined) {
+        console.log(`✅ OptimizedChat: Unido exitosamente a conversación ${conversationId}`);
+        return true;
+      } else {
+        console.warn(`⚠️ OptimizedChat: No se pudo unir a conversación ${conversationId}`);
+        return false;
+      }
+    } catch (error) {
+      console.error(`❌ OptimizedChat: Error uniéndose a conversación ${conversationId}:`, error);
+      return false;
+    }
   }
 
   /**
@@ -419,7 +456,6 @@ class OptimizedChatService {
       totalConversations: this.conversations.size,
       maxConversations: this.MAX_CONVERSATIONS_CACHED,
       totalMessages: 0,
-      optimisticMessages: 0,
       oldestConversation: null as string | null,
       newestConversation: null as string | null,
       memoryUsageEstimate: 0
@@ -430,7 +466,6 @@ class OptimizedChatService {
 
     this.conversations.forEach((conv, id) => {
       stats.totalMessages += conv.messages.length;
-      stats.optimisticMessages += conv.messages.filter(m => m.isOptimistic).length;
       
       const convTime = new Date(conv.lastUpdated).getTime();
       if (convTime < oldestTime) {
@@ -469,33 +504,27 @@ class OptimizedChatService {
       
       const cachedConv = this.conversations.get(conversationId);
       
-      // Limpiar mensajes optimistas expirados antes de sincronizar
-      if (cachedConv) {
-        this.cleanupExpiredOptimisticMessagesForConversation(conversationId);
-      }
-      
       const cachedMessageIds = new Set(
-        cachedConv?.messages.filter(m => !m.isOptimistic).map(m => m.messageId) || []
+        cachedConv?.messages.map(m => m.messageId) || []
       );
 
-      // Filtrar solo mensajes nuevos (excluir optimistas)
+      // Filtrar solo mensajes nuevos
       const newMessages = serverMessages.filter(
         (msg: ChatMessage) => !cachedMessageIds.has(msg.messageId)
       );
 
       if (newMessages.length > 0) {
-        // Combinar mensajes existentes no optimistas con nuevos
-        const existingRealMessages = cachedConv?.messages.filter(m => !m.isOptimistic) || [];
-        const existingOptimisticMessages = cachedConv?.messages.filter(m => m.isOptimistic) || [];
+        // Combinar mensajes existentes con nuevos
+        const existingMessages = cachedConv?.messages || [];
         
-        // Los mensajes del servidor vienen en orden descendente, pero necesitamos orden cronológico
+        // Los mensajes del servidor vienen en orden descendente, mantener ese orden
         const sortedNewMessages = [...newMessages].sort((a, b) => 
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
         
-        const allMessages = [...existingRealMessages, ...sortedNewMessages, ...existingOptimisticMessages]
-          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-          .slice(-this.MAX_CACHED_MESSAGES);
+        const allMessages = [...existingMessages, ...sortedNewMessages]
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, this.MAX_CACHED_MESSAGES); // Mantener los más recientes
 
         this.updateConversationCache(conversationId, allMessages);
         this.debounceSaveToStorage();
@@ -517,29 +546,6 @@ class OptimizedChatService {
     }
   }
 
-  /**
-   * Limpia mensajes optimistas expirados para una conversación específica
-   */
-  private cleanupExpiredOptimisticMessagesForConversation(conversationId: string): void {
-    const cachedConv = this.conversations.get(conversationId);
-    if (!cachedConv) return;
-    
-    const now = Date.now();
-    const originalLength = cachedConv.messages.length;
-    
-    cachedConv.messages = cachedConv.messages.filter(m => {
-      if (!m.isOptimistic) return true;
-      
-      const messageAge = now - new Date(m.createdAt).getTime();
-      return messageAge <= this.TEMP_MESSAGE_AGE_LIMIT;
-    });
-    
-    const cleaned = originalLength - cachedConv.messages.length;
-    if (cleaned > 0) {
-      console.log(`🧹 OptimizedChat: ${cleaned} mensajes optimistas expirados limpiados en conversación ${conversationId}`);
-      this.conversations.set(conversationId, cachedConv);
-    }
-  }
 
   // Métodos privados
 
@@ -598,11 +604,13 @@ class OptimizedChatService {
       content: message.content?.substring(0, 50) + '...'
     });
 
-    // Remover mensaje optimista si existe (mejorar lógica)
-    this.removeOptimisticMessage(message.conversationId, message.content, message.senderId);
-
-    // Añadir mensaje real al caché
+    // Añadir mensaje al caché local
     this.addMessageToCache(message.conversationId, message);
+
+    // Añadir mensaje al caché mejorado (asíncrono, no bloquear)
+    enhancedCacheService.addMessage(message.conversationId, message).catch(error => {
+      console.error('Error añadiendo mensaje al caché mejorado:', error);
+    });
 
     // Notificar a listeners inmediatamente
     this.listeners.forEach(listener => {
@@ -630,8 +638,8 @@ class OptimizedChatService {
     if (!exists) {
       cachedConv.messages.push(message);
       cachedConv.messages = cachedConv.messages
-        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-        .slice(-this.MAX_CACHED_MESSAGES);
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, this.MAX_CACHED_MESSAGES); // Mantener los más recientes
       
       cachedConv.lastUpdated = new Date().toISOString();
       cachedConv.lastMessageId = message.messageId;
@@ -648,44 +656,6 @@ class OptimizedChatService {
     }
   }
 
-  private removeOptimisticMessage(conversationId: string, content: string, senderId?: string): void {
-    const cachedConv = this.conversations.get(conversationId);
-    if (cachedConv) {
-      const originalLength = cachedConv.messages.length;
-      const now = Date.now();
-      
-      // Mejorar lógica de eliminación con timestamp
-      cachedConv.messages = cachedConv.messages.filter(m => {
-        if (!m.isOptimistic) return true;
-        
-        // Remover mensajes temporales antiguos automáticamente
-        const messageAge = now - new Date(m.createdAt).getTime();
-        if (messageAge > this.TEMP_MESSAGE_AGE_LIMIT) {
-          console.log(`🗑️ OptimizedChat: Removiendo mensaje optimista expirado: ${m.messageId}`);
-          return false;
-        }
-        
-        // Lógica de coincidencia mejorada
-        if (senderId && m.senderId === senderId && m.content === content) {
-          console.log(`🔄 OptimizedChat: Removiendo mensaje optimista específico: ${m.messageId}`);
-          return false;
-        }
-        
-        // Fallback a comparación por contenido solo
-        if (!senderId && m.content === content) {
-          return false;
-        }
-        
-        return true;
-      });
-      
-      const removedCount = originalLength - cachedConv.messages.length;
-      if (removedCount > 0) {
-        console.log(`🗑️ OptimizedChat: Removidos ${removedCount} mensajes optimistas de conversación ${conversationId}`);
-        this.conversations.set(conversationId, cachedConv);
-      }
-    }
-  }
 
   private updateConversationCache(conversationId: string, messages: ChatMessage[]): void {
     const cachedConv = this.conversations.get(conversationId) || {
@@ -710,12 +680,8 @@ class OptimizedChatService {
     const lastUpdate = new Date(conv.lastUpdated).getTime();
     const timeSinceUpdate = now - lastUpdate;
     
-    // Sincronizar si han pasado más de 5 minutos o si hay mensajes optimistas antiguos
-    const hasOldOptimisticMessages = conv.messages.some(m => 
-      m.isOptimistic && (now - new Date(m.createdAt).getTime()) > this.TEMP_MESSAGE_AGE_LIMIT
-    );
-    
-    return timeSinceUpdate > 5 * 60 * 1000 || hasOldOptimisticMessages;
+    // Sincronizar si han pasado más de 5 minutos
+    return timeSinceUpdate > 5 * 60 * 1000;
   }
 
   private isCacheValid(conv: CachedConversation): boolean {
@@ -738,9 +704,9 @@ class OptimizedChatService {
       
       if (serverMessages.length > 0) {
         // Los mensajes vienen en orden descendente (más recientes primero) desde el backend
-        // Para la carga inicial, los invertimos para tener el orden cronológico correcto
+        // Mantener ese orden para consistencia con la UI
         const sortedMessages = [...serverMessages].sort((a, b) => 
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
         this.updateConversationCache(conversationId, sortedMessages);
         await this.saveCacheToStorage();
@@ -770,7 +736,6 @@ class OptimizedChatService {
     
     this.cacheCleanupInterval = setInterval(() => {
       this.cleanupOldConversations();
-      this.cleanupExpiredOptimisticMessages();
     }, this.CACHE_CLEANUP_INTERVAL);
     
     console.log('🧹 OptimizedChat: Limpieza automática de caché iniciada');
@@ -809,40 +774,6 @@ class OptimizedChatService {
     }
   }
 
-  /**
-   * Limpia mensajes optimistas expirados
-   */
-  private cleanupExpiredOptimisticMessages(): void {
-    const now = Date.now();
-    let totalCleaned = 0;
-    
-    this.conversations.forEach((conv, conversationId) => {
-      const originalLength = conv.messages.length;
-      
-      conv.messages = conv.messages.filter(m => {
-        if (!m.isOptimistic) return true;
-        
-        const messageAge = now - new Date(m.createdAt).getTime();
-        if (messageAge > this.TEMP_MESSAGE_AGE_LIMIT) {
-          console.log(`🕐 OptimizedChat: Mensaje optimista expirado removido: ${m.messageId}`);
-          return false;
-        }
-        
-        return true;
-      });
-      
-      const cleaned = originalLength - conv.messages.length;
-      if (cleaned > 0) {
-        totalCleaned += cleaned;
-        this.conversations.set(conversationId, conv);
-      }
-    });
-    
-    if (totalCleaned > 0) {
-      console.log(`🧹 OptimizedChat: ${totalCleaned} mensajes optimistas expirados limpiados`);
-      this.debounceSaveToStorage();
-    }
-  }
 
   private debounceSaveToStorage(): void {
     // Debounce para evitar múltiples escrituras

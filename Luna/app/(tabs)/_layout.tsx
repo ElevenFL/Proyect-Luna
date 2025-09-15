@@ -71,6 +71,12 @@ export default function TabLayout() {
             tabBarIconStyle: { alignSelf: 'center' },
           }}
         />
+        <Tabs.Screen
+          name="notifications"
+          options={{
+            href: null, // Ocultar del tab bar pero mantener la ruta accesible
+          }}
+        />
       </Tabs>
     </AuthGuard>
   );

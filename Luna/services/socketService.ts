@@ -32,6 +32,8 @@ class SocketService {
   private connectionPromise: Promise<void> | null = null;
   private lastConnectionTime = 0;
   private connectionLock = false;
+  private connectionLockTimeout: ReturnType<typeof setTimeout> | null = null;
+  private connectionQueue: Array<{ userId: string; resolve: () => void; reject: (error: Error) => void }> = [];
   
   // Circuit Breaker para conexiones fallidas
   private failureCount = 0;
@@ -127,10 +129,100 @@ class SocketService {
    */
   resetConnectionLock(): void {
     console.log('🔄 SocketService: Reseteando connectionLock manualmente');
+    this.clearConnectionLock();
+    console.log('🔓 SocketService: ConnectionLock reseteado manualmente');
+  }
+
+  /**
+   * Limpia la cola de conexiones pendientes (para casos de emergencia)
+   */
+  clearConnectionQueue(): void {
+    console.log(`🧹 SocketService: Limpiando cola de conexiones (${this.connectionQueue.length} elementos)`);
+    this.connectionQueue.forEach(({ reject }) => {
+      reject(new Error('Cola de conexiones limpiada manualmente'));
+    });
+    this.connectionQueue = [];
+    console.log('✅ SocketService: Cola de conexiones limpiada');
+  }
+
+  /**
+   * Limpia el connectionLock y sus timeouts asociados
+   */
+  private clearConnectionLock(): void {
     this.connectionLock = false;
     this.isConnecting = false;
     this.connectionPromise = null;
-    console.log('🔓 SocketService: ConnectionLock reseteado manualmente');
+    
+    // Limpiar timeout de lock si existe
+    if (this.connectionLockTimeout) {
+      clearTimeout(this.connectionLockTimeout);
+      this.connectionLockTimeout = null;
+    }
+    
+    // Procesar cola de conexiones pendientes
+    this.processConnectionQueue();
+  }
+
+  /**
+   * Procesa la cola de conexiones pendientes
+   */
+  private processConnectionQueue(): void {
+    if (this.connectionQueue.length > 0 && !this.connectionLock && !this.isConnecting) {
+      const nextConnection = this.connectionQueue.shift();
+      if (nextConnection) {
+        console.log('🔄 SocketService: Procesando conexión pendiente de la cola');
+        this.connect(nextConnection.userId)
+          .then(() => nextConnection.resolve())
+          .catch((error) => nextConnection.reject(error));
+      }
+    }
+  }
+
+  /**
+   * Añade una conexión a la cola de espera
+   */
+  private addToConnectionQueue(userId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Verificar si ya hay una conexión para el mismo usuario en la cola
+      const existingIndex = this.connectionQueue.findIndex(item => item.userId === userId);
+      if (existingIndex !== -1) {
+        // Reemplazar la conexión existente
+        this.connectionQueue[existingIndex] = { userId, resolve, reject };
+        console.log('🔄 SocketService: Reemplazando conexión existente en cola para usuario:', userId);
+      } else {
+        // Añadir nueva conexión a la cola
+        this.connectionQueue.push({ userId, resolve, reject });
+        console.log('📋 SocketService: Añadida conexión a cola. Cola actual:', this.connectionQueue.length);
+      }
+      
+      // Configurar timeout para la conexión en cola
+      setTimeout(() => {
+        const queueIndex = this.connectionQueue.findIndex(item => item.userId === userId);
+        if (queueIndex !== -1) {
+          console.log('⏰ SocketService: Timeout de conexión en cola para usuario:', userId);
+          this.connectionQueue.splice(queueIndex, 1);
+          reject(new Error('Timeout esperando en cola de conexiones'));
+        }
+      }, 15000); // 15 segundos de timeout para conexiones en cola
+    });
+  }
+
+  /**
+   * Activa el connectionLock con timeout automático
+   */
+  private setConnectionLock(): void {
+    this.connectionLock = true;
+    this.lastConnectionTime = Date.now();
+    
+    // Configurar timeout automático para liberar el lock
+    if (this.connectionLockTimeout) {
+      clearTimeout(this.connectionLockTimeout);
+    }
+    
+    this.connectionLockTimeout = setTimeout(() => {
+      console.log('⏰ SocketService: Timeout automático del connectionLock, liberando...');
+      this.clearConnectionLock();
+    }, 10000); // 10 segundos de timeout automático
   }
 
   /**
@@ -159,7 +251,7 @@ class SocketService {
     // Declarar 'now' antes de usarlo
     const now = Date.now();
 
-    // Bloqueo estricto para evitar múltiples conexiones con timeout de seguridad
+    // Bloqueo estricto para evitar múltiples conexiones con timeout de seguridad mejorado
     if (this.connectionLock) {
       const lockTime = now - this.lastConnectionTime;
       console.log('🔒 SocketService: ConnectionLock activo:', {
@@ -167,17 +259,34 @@ class SocketService {
         lastConnectionTime: this.lastConnectionTime,
         isConnecting: this.isConnecting,
         isConnected: this.isConnected,
-        hasConnectionPromise: !!this.connectionPromise
+        hasConnectionPromise: !!this.connectionPromise,
+        userId: userId
       });
       
-      if (lockTime > 5000) { // Reducir el tiempo de lock a 5 segundos para evitar bloqueos prolongados
-        console.log('⚠️ SocketService: Lock antiguo detectado, liberando...');
-        this.connectionLock = false;
-        this.isConnecting = false; // También resetear isConnecting
-        this.connectionPromise = null; // Limpiar promesa antigua
+      // Reducir el tiempo de lock a 3 segundos para evitar bloqueos prolongados
+      if (lockTime > 3000) {
+        console.log('⚠️ SocketService: Lock antiguo detectado (>3s), liberando...');
+        this.clearConnectionLock();
+        // Limpiar socket si existe pero no está conectado
+        if (this.socket && !this.isConnected) {
+          console.log('🧹 SocketService: Limpiando socket huérfano');
+          this.socket.disconnect();
+          this.socket = null;
+        }
       } else {
-        console.log('🚫 SocketService: Conexión bloqueada, rechazando...');
-        return Promise.reject(new Error('Conexión bloqueada - ya hay una conexión en progreso'));
+        // Si el lock es reciente pero hay una promesa en progreso, esperar a que termine
+        if (this.connectionPromise && this.isConnecting) {
+          console.log('⏳ SocketService: Esperando conexión en progreso...');
+          return this.connectionPromise.catch(() => {
+            // Si la promesa falla, liberar el lock y reintentar
+            console.log('🔄 SocketService: Conexión previa falló, reintentando...');
+            this.clearConnectionLock();
+            return this.connect(userId);
+          });
+        } else {
+          console.log('🚫 SocketService: Conexión bloqueada, añadiendo a cola...');
+          return this.addToConnectionQueue(userId);
+        }
       }
     }
 
@@ -193,9 +302,7 @@ class SocketService {
       console.log(`⏳ SocketService: Throttling - esperando ${waitTime}ms antes de reconectar`);
       
       // Resetear el estado de conexión antes de reintentar
-      this.isConnecting = false;
-      this.connectionLock = false;
-      this.connectionPromise = null;
+      this.clearConnectionLock();
       
       return new Promise((resolve, reject) => {
         setTimeout(async () => {
@@ -211,9 +318,7 @@ class SocketService {
           } catch (error) {
             console.error('❌ SocketService: Error en reconexión throttled:', error);
             // Resetear estado en caso de error
-            this.isConnecting = false;
-            this.connectionLock = false;
-            this.connectionPromise = null;
+            this.clearConnectionLock();
             reject(error);
           }
         }, waitTime);
@@ -251,7 +356,7 @@ class SocketService {
         return;
       }
 
-      this.connectionLock = true; // Activar bloqueo
+      this.setConnectionLock(); // Activar bloqueo con timeout automático
       this.isConnecting = true;
       this.userId = userId;
       
@@ -276,9 +381,7 @@ class SocketService {
         this.socket = await socketIOWrapper.createSocket(baseUrl, socketConfig);
       } catch (initError) {
         console.error('❌ SocketService: Error inicializando socket:', initError);
-        this.connectionPromise = null;
-        this.connectionLock = false;
-        this.isConnecting = false;
+        this.clearConnectionLock();
         reject(initError);
         return;
       }
@@ -304,8 +407,7 @@ class SocketService {
         // Notificar cambio de estado
         this.notifyConnectionState(true);
         
-        this.connectionPromise = null;
-        this.connectionLock = false;
+        this.clearConnectionLock();
         console.log('🔓 SocketService: ConnectionLock liberado - conexión exitosa');
         resolve();
       });
@@ -379,9 +481,7 @@ class SocketService {
         } else {
           const reason = this.circuitBreakerOpen ? 'Circuit breaker abierto' : 'Máximo de intentos alcanzado';
           console.error(`❌ SocketService: ${reason}`);
-          this.connectionPromise = null;
-          this.connectionLock = false; // Asegurar que se libere el lock
-          this.isConnecting = false; // Asegurar que se resetee el estado
+          this.clearConnectionLock();
           console.log('🔓 SocketService: ConnectionLock liberado - máximo de intentos alcanzado');
           reject(error);
         }
@@ -393,10 +493,9 @@ class SocketService {
 
       this.socket.on('authentication_error', (error: any) => {
         console.error('❌ SocketService: Error de autenticación:', error);
-          this.connectionPromise = null;
-          this.connectionLock = false; // Liberar bloqueo
-          console.log('🔓 SocketService: ConnectionLock liberado - error de autenticación');
-          reject(new Error(`Error de autenticación: ${error}`));
+        this.clearConnectionLock();
+        console.log('🔓 SocketService: ConnectionLock liberado - error de autenticación');
+        reject(new Error(`Error de autenticación: ${error}`));
       });
 
       // Escuchar nuevos mensajes con mejor manejo de errores
@@ -506,9 +605,7 @@ class SocketService {
         }
       } catch (manualConnectError) {
         console.error('❌ SocketService: Error iniciando conexión manual:', manualConnectError);
-        this.connectionPromise = null;
-        this.connectionLock = false;
-        this.isConnecting = false;
+        this.clearConnectionLock();
         reject(manualConnectError);
         return;
       }
@@ -553,9 +650,7 @@ class SocketService {
       // Si sigue conectando después de la espera, resetear estado
       if (this.isConnecting) {
         console.log('⚠️ SocketService: Conexión bloqueada, reseteando estado...');
-        this.isConnecting = false;
-        this.connectionLock = false;
-        this.connectionPromise = null;
+        this.clearConnectionLock();
       }
     }
 
@@ -567,9 +662,7 @@ class SocketService {
     } catch (error) {
       console.error('❌ SocketService: Error en reconexión:', error);
       // Resetear estado en caso de error
-      this.isConnecting = false;
-      this.connectionLock = false;
-      this.connectionPromise = null;
+      this.clearConnectionLock();
     }
   }
 
@@ -655,10 +748,15 @@ class SocketService {
     
     this.isDestroyed = true;
     this.socketReplaced = false;
-    this.connectionPromise = null;
-    this.connectionLock = false;
+    this.clearConnectionLock();
     this.stopHeartbeat();
     this.joinedConversations.clear();
+    
+    // Limpiar cola de conexiones pendientes
+    this.connectionQueue.forEach(({ reject }) => {
+      reject(new Error('SocketService destruido'));
+    });
+    this.connectionQueue = [];
     
     // Limpiar timeouts
     if (this.reconnectTimeout) {
@@ -932,8 +1030,7 @@ class SocketService {
       
       this.isConnected = false;
       this.isConnecting = false;
-      this.connectionPromise = null;
-      this.connectionLock = false;
+      this.clearConnectionLock();
       this.socketReplaced = false;
       this.reconnectAttempts = 0;
       this.stopHeartbeat();
@@ -1002,7 +1099,16 @@ class SocketService {
         isDestroyed: this.isDestroyed,
         connectionLock: this.connectionLock,
         lastConnectionTime: this.lastConnectionTime,
-        socketId: this.socket?.id || null
+        socketId: this.socket?.id || null,
+        hasConnectionPromise: !!this.connectionPromise,
+        connectionLockTimeout: !!this.connectionLockTimeout
+      },
+      queue: {
+        pendingConnections: this.connectionQueue.length,
+        queueItems: this.connectionQueue.map(item => ({
+          userId: item.userId,
+          timestamp: Date.now() - this.lastConnectionTime
+        }))
       },
       auth: {
         userId: this.userId,

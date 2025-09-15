@@ -1,10 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, StatusBar, FlatList, TouchableOpacity, ActivityIndicator, TextInput, ScrollView, Animated } from 'react-native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatProvider';
+import { useFriends } from '@/hooks/useFriends';
 import OptimizedImage from '@/components/OptimizedImage';
 
 interface ConversationItem {
@@ -37,6 +38,7 @@ export default function GlobalMessagesScreen() {
     getUnreadCountFromDatabase,
     openChat
   } = useChat();
+  const { friends, isLoading: friendsLoading, refreshFriends } = useFriends();
   
   const [searchQuery, setSearchQuery] = useState('');
   const [hiddenConversations, setHiddenConversations] = useState<Set<string>>(new Set());
@@ -55,7 +57,7 @@ export default function GlobalMessagesScreen() {
         convArray.push({
           conversationId,
           otherUser: chat.otherUser,
-          lastMessagePreview: lastMessage?.content || 'Iniciar conversación...',
+          lastMessagePreview: chat.lastMessagePreview || lastMessage?.content || 'Iniciar conversación...',
           lastActivity: chat.lastActivity,
           unreadCount: chat.unreadCount,
           isTyping: chat.isTyping
@@ -99,8 +101,11 @@ export default function GlobalMessagesScreen() {
         setLocalLoading(true);
         console.log('🚀 GlobalMessages: Cargando mensajes globales');
         
-        // Actualizar contador desde la base de datos
-        await updateUnreadCountFromDB();
+        // Actualizar contador desde la base de datos y cargar amigos
+        await Promise.all([
+          updateUnreadCountFromDB(),
+          refreshFriends()
+        ]);
         
         // El ChatProvider ya maneja la carga inicial
         // Solo esperamos un momento para que se inicialice
@@ -115,19 +120,20 @@ export default function GlobalMessagesScreen() {
     };
 
     loadInitial();
-  }, [user?.id]);
+  }, [user?.id, refreshFriends]);
 
   // Refrescar cuando la pantalla recibe foco (con restricciones)
   useFocusEffect(
     useCallback(() => {
       if (user?.id) {
         console.log('🔄 GlobalMessages: Foco recibido');
-        // Actualizar contador desde la base de datos cuando la pantalla recibe foco
+        // Actualizar contador desde la base de datos y amigos cuando la pantalla recibe foco
         updateUnreadCountFromDB();
+        refreshFriends();
         // Solo refrescar si han pasado más de 30 segundos desde la última carga
         // El ChatProvider ya maneja su propio refresco automático
       }
-    }, [user?.id])
+    }, [user?.id, refreshFriends])
   );
 
   // Navegar a chat
@@ -213,17 +219,20 @@ export default function GlobalMessagesScreen() {
     }
   };
 
-  // Componente de conversación con gesto deslizable
-  const SwipeableConversationItem = ({ item }: { item: ConversationItem }) => {
-    const translateX = new Animated.Value(0);
-    const opacity = new Animated.Value(1);
+  // Componente de conversación con gesto deslizable (memoizado)
+  const SwipeableConversationItem = React.memo(({ item }: { item: ConversationItem }) => {
+    const translateX = useRef(new Animated.Value(0)).current;
+    const opacity = useRef(new Animated.Value(1)).current;
 
-    const onGestureEvent = Animated.event(
-      [{ nativeEvent: { translationX: translateX } }],
-      { useNativeDriver: true }
+    const onGestureEvent = useCallback(
+      Animated.event(
+        [{ nativeEvent: { translationX: translateX } }],
+        { useNativeDriver: true }
+      ),
+      [translateX]
     );
 
-    const onHandlerStateChange = (event: any) => {
+    const onHandlerStateChange = useCallback((event: any) => {
       if (event.nativeEvent.state === State.END) {
         const { translationX, velocityX } = event.nativeEvent;
         
@@ -249,7 +258,11 @@ export default function GlobalMessagesScreen() {
           }).start();
         }
       }
-    };
+    }, [translateX, opacity, item.conversationId]);
+
+    const handlePress = useCallback(() => {
+      handleConversationPress(item);
+    }, [item]);
 
     return (
       <PanGestureHandler
@@ -268,18 +281,20 @@ export default function GlobalMessagesScreen() {
         >
           <TouchableOpacity 
             style={styles.conversationItem}
-            onPress={() => handleConversationPress(item)}
+            onPress={handlePress}
             activeOpacity={0.7}
           >
             <View style={styles.content}>
               {/* Profile Picture */}
               <View style={styles.profileContainer}>
-                {item.otherUser.profileImage ? (
+                {item.otherUser.profileImage && item.otherUser.profileImage.trim() !== '' ? (
                   <OptimizedImage 
                     uri={item.otherUser.profileImage} 
                     style={styles.profileImage}
                     cachePolicy="memory-disk"
-                    priority="normal"
+                    priority="high" // Prioridad alta para imágenes de perfil
+                    placeholder={undefined}
+                    fallback={undefined}
                   />
                 ) : (
                   <View style={styles.profilePlaceholder}>
@@ -300,12 +315,35 @@ export default function GlobalMessagesScreen() {
               <View style={styles.userInfo}>
                 <View style={styles.nameRow}>
                   <Text style={styles.userName}>{item.otherUser.name}</Text>
-                  <View style={styles.genderAgeContainer}>
-                    <Text style={[styles.genderIcon, { color: getGenderColor(item.otherUser.gender) }]}>
-                      {getGenderIcon(item.otherUser.gender)}
-                    </Text>
-                    <Text style={styles.age}>{item.otherUser.age || '?'}</Text>
-                    <Text style={styles.countryFlag}>{item.otherUser.countryFlag || '🌍'}</Text>
+                  
+                  {/* Información visual: Género, Edad, País al lado del nombre */}
+                  <View style={styles.visualInfoContainer}>
+                    {/* Género */}
+                    {item.otherUser.gender && (
+                      <View style={[styles.infoBadge, { backgroundColor: getGenderColor(item.otherUser.gender) }]}>
+                        <Text style={styles.infoBadgeText}>
+                          {getGenderIcon(item.otherUser.gender)}
+                        </Text>
+                      </View>
+                    )}
+                    
+                    {/* Edad */}
+                    {item.otherUser.age && (
+                      <View style={styles.infoBadge}>
+                        <Text style={styles.infoBadgeText}>
+                          {item.otherUser.age}
+                        </Text>
+                      </View>
+                    )}
+                    
+                    {/* País */}
+                    {(item.otherUser.countryFlag || item.otherUser.country) && (
+                      <View style={styles.countryBadge}>
+                        <Text style={styles.countryFlagText}>
+                          {item.otherUser.countryFlag || '🌍'}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 </View>
                 
@@ -321,9 +359,11 @@ export default function GlobalMessagesScreen() {
 
               {/* Status and Unread */}
               <View style={styles.statusContainer}>
-                <Text style={[styles.statusText, { color: item.otherUser.isOnline ? '#4CAF50' : '#ADB5BD' }]}>
-                  {item.otherUser.isOnline ? 'Online' : getTimeAgo(item.lastActivity)}
-                </Text>
+                <View style={styles.statusTextContainer}>
+                  <Text style={[styles.statusText, { color: item.otherUser.isOnline ? '#4CAF50' : '#ADB5BD' }]}>
+                    {item.otherUser.isOnline ? 'Online' : getTimeAgo(item.lastActivity)}
+                  </Text>
+                </View>
                 {item.unreadCount > 0 && (
                   <View style={styles.unreadBadge}>
                     <Text style={styles.unreadText}>
@@ -337,7 +377,7 @@ export default function GlobalMessagesScreen() {
         </Animated.View>
       </PanGestureHandler>
     );
-  };
+  });
 
   const renderConversation = ({ item }: { item: ConversationItem }) => {
     return <SwipeableConversationItem item={item} />;
@@ -359,49 +399,93 @@ export default function GlobalMessagesScreen() {
     <GestureHandlerRootView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
       
-      {/* Sección de avatares */}
+      {/* Sección de avatares - Solo amigos */}
       <View style={styles.avatarsSection}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.avatarsContainer}>
           <TouchableOpacity style={styles.addButton}>
             <Ionicons name="add" size={20} color="#000000" />
           </TouchableOpacity>
           
-          {/* Mostrar primeros usuarios de chats activos */}
-          {Array.from(activeChats.values()).slice(0, 4).map((chat, index) => (
-            <TouchableOpacity 
-              key={chat.conversationId}
-              style={styles.avatarCircle}
-              onPress={() => handleConversationPress({
-                conversationId: chat.conversationId,
-                otherUser: chat.otherUser,
-                lastMessagePreview: chat.messages[0]?.content,
-                lastActivity: chat.lastActivity,
-                unreadCount: chat.unreadCount,
-                isTyping: chat.isTyping
-              })}
-            >
-              {chat.otherUser.profileImage ? (
-                <OptimizedImage 
-                  uri={chat.otherUser.profileImage} 
-                  style={styles.avatarImage}
-                  cachePolicy="memory-disk"
-                  priority="normal"
-                />
-              ) : (
-                <Text style={styles.avatarInitialsText}>
-                  {getInitials(chat.otherUser.name)}
-                </Text>
-              )}
-              {chat.unreadCount > 0 && (
-                <View style={styles.avatarBadge}>
-                  <Text style={styles.avatarBadgeText}>
-                    {chat.unreadCount > 9 ? '9+' : chat.unreadCount.toString()}
+          {/* Mostrar primeros amigos */}
+          {friends.slice(0, 4).map((friend) => {
+            // Buscar si hay un chat activo con este amigo
+            const activeChat = Array.from(activeChats.values()).find(chat => chat.otherUser.id === friend.id);
+            
+            return (
+              <TouchableOpacity 
+                key={friend.id}
+                style={styles.avatarCircle}
+                onPress={() => {
+                  if (activeChat) {
+                    // Si hay chat activo, navegar a él
+                    handleConversationPress({
+                      conversationId: activeChat.conversationId,
+                      otherUser: activeChat.otherUser,
+                      lastMessagePreview: activeChat.lastMessagePreview || activeChat.messages[0]?.content || 'Iniciar conversación...',
+                      lastActivity: activeChat.lastActivity,
+                      unreadCount: activeChat.unreadCount,
+                      isTyping: activeChat.isTyping
+                    });
+                  } else {
+                    // Si no hay chat activo, crear uno nuevo navegando directamente
+                    router.push({ 
+                      pathname: '/chat/[userId]', 
+                      params: { 
+                        userId: friend.id,
+                        userName: friend.name || '',
+                        userImage: friend.profileImage || '',
+                        userAge: friend.age?.toString() || '',
+                        userGender: friend.gender || 'other',
+                        userCountry: friend.country || 'Unknown',
+                        userCountryFlag: friend.countryFlag || '🌍',
+                        isOnline: friend.isOnline?.toString() || 'false'
+                      } 
+                    });
+                  }
+                }}
+              >
+                {friend.profileImage && friend.profileImage.trim() !== '' ? (
+                  <OptimizedImage 
+                    uri={friend.profileImage} 
+                    style={styles.avatarImage}
+                    cachePolicy="memory-disk"
+                    priority="high" // Prioridad alta para avatares visibles
+                    placeholder={undefined}
+                    fallback={undefined}
+                  />
+                ) : (
+                  <Text style={styles.avatarInitialsText}>
+                    {getInitials(friend.name)}
                   </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          ))}
+                )}
+                {/* Mostrar badge de mensajes no leídos si hay chat activo */}
+                {activeChat && activeChat.unreadCount > 0 && (
+                  <View style={styles.avatarBadge}>
+                    <Text style={styles.avatarBadgeText}>
+                      {activeChat.unreadCount > 9 ? '9+' : activeChat.unreadCount.toString()}
+                    </Text>
+                  </View>
+                )}
+                {/* Indicador de estado online */}
+                <View style={[
+                  styles.avatarStatusIndicator,
+                  { backgroundColor: friend.isOnline ? '#4CAF50' : '#666666' }
+                ]} />
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
+        
+        {/* Botón de amigos al lado derecho */}
+        <TouchableOpacity 
+          style={styles.friendsButton}
+          onPress={() => {
+            console.log('👥 Botón de amigos presionado');
+            router.push('/friends');
+          }}
+        >
+          <Ionicons name="people" size={20} color="#F9C80E" />
+        </TouchableOpacity>
       </View>
 
       {/* Barra de búsqueda */}
@@ -455,10 +539,13 @@ export default function GlobalMessagesScreen() {
             offset: 80 * index,
             index,
           })}
-          refreshing={isGlobalLoading}
+          refreshing={isGlobalLoading || friendsLoading}
           onRefresh={async () => {
-            await refreshChats();
-            await updateUnreadCountFromDB();
+            await Promise.all([
+              refreshChats(),
+              updateUnreadCountFromDB(),
+              refreshFriends()
+            ]);
           }}
         />
       )}
@@ -474,11 +561,15 @@ const styles = StyleSheet.create({
   avatarsSection: {
     marginTop: 50,
     paddingVertical: 20,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   avatarsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
   addButton: {
     width: 56,
@@ -526,10 +617,31 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
+  avatarStatusIndicator: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#000000',
+  },
+  friendsButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: '#1a1a1a',
+    borderWidth: 2,
+    borderColor: '#F9C80E',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
+  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 20,
+    marginHorizontal: 16,
     marginBottom: 10,
     borderWidth: 1,
     borderColor: '#F9C80E',
@@ -643,6 +755,7 @@ const styles = StyleSheet.create({
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 4,
   },
   userName: {
@@ -651,21 +764,41 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginRight: 8,
   },
-  genderAgeContainer: {
+  visualInfoContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    flex: 1,
+    justifyContent: 'flex-end',
   },
-  genderIcon: {
-    fontSize: 14,
-    marginRight: 4,
-  },
-  age: {
-    fontSize: 14,
-    color: '#FFFFFF',
+  infoBadge: {
+    backgroundColor: '#2a2a2a',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     marginRight: 6,
+    marginBottom: 4,
+    minWidth: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  countryFlag: {
-    fontSize: 16,
+  infoBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  countryBadge: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginRight: 6,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: '#333333',
+  },
+  countryFlagText: {
+    fontSize: 14,
   },
   messageRow: {
     flexDirection: 'row',
@@ -684,8 +817,13 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   statusContainer: {
+    marginTop: -20,
     alignItems: 'flex-end',
-    marginTop: -35,
+    minWidth: 80,
+  },
+  statusTextContainer: {
+    alignItems: 'flex-end',
+    minWidth: 60,
   },
   statusText: {
     fontSize: 12,

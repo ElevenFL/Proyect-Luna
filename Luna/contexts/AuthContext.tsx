@@ -963,8 +963,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       
       try {
         // Obtener el perfil actualizado del usuario desde la base de datos
-        console.log('🔄 AuthContext: Llamando a /profile...');
-        const response = await ApiService.get('/profile');
+        console.log('🔄 AuthContext: Llamando a /profiles...');
+        const response = await ApiService.get('/profiles');
         
         console.log('🔄 AuthContext: Respuesta del servidor:', {
           success: response.success,

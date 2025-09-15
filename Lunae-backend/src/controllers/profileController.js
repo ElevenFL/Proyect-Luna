@@ -1,4 +1,6 @@
 import { User } from '../models/Users.js';
+import { FriendRequest } from '../models/FriendRequest.js';
+import { Chat } from '../models/Chat.js';
 
 // Actualizar perfil del usuario
 export const updateProfile = async (req, res) => {
@@ -279,6 +281,115 @@ export const checkSuperLikeStatus = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error verificando estado de super like:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: 'SERVER_ERROR',
+      details: error.message || 'Error desconocido'
+    });
+  }
+};
+
+// Obtener toda la información del perfil de un usuario (optimizado)
+export const getUserProfileInfo = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    console.log('📋 Obteniendo información completa del perfil:', { userId, currentUserId });
+
+    // Ejecutar todas las consultas en paralelo para mejor rendimiento
+    const [targetUser, superLikeStatus, friendRequests, conversations] = await Promise.allSettled([
+      User.findById(userId),
+      // Verificar estado de super like
+      (async () => {
+        try {
+          const hasGivenSuperLike = await User.hasGivenSuperLike(currentUserId, userId);
+          const targetUser = await User.findById(userId);
+          return {
+            starsCount: targetUser?.starsCount || 0,
+            hasGivenSuperLike
+          };
+        } catch (error) {
+          console.error('Error verificando super like:', error);
+          return { starsCount: 0, hasGivenSuperLike: false };
+        }
+      })(),
+      // Obtener estado de solicitud de amistad
+      (async () => {
+        try {
+          const allRequests = await FriendRequest.findAll();
+          const relatedRequest = allRequests.find(request => 
+            (request.senderId === currentUserId && request.receiverId === userId) ||
+            (request.senderId === userId && request.receiverId === currentUserId)
+          );
+          return relatedRequest ? relatedRequest.status : 'none';
+        } catch (error) {
+          console.error('Error verificando solicitud de amistad:', error);
+          return 'none';
+        }
+      })(),
+      // Verificar conversación activa
+      (async () => {
+        try {
+          const userConversations = await Chat.listUserConversations(currentUserId);
+          return userConversations.items.some(conv => 
+            conv.participants && conv.participants.includes(userId)
+          );
+        } catch (error) {
+          console.error('Error verificando conversación:', error);
+          return false;
+        }
+      })()
+    ]);
+
+    // Procesar resultados
+    const user = targetUser.status === 'fulfilled' ? targetUser.value : null;
+    const superLikeData = superLikeStatus.status === 'fulfilled' ? superLikeStatus.value : { starsCount: 0, hasGivenSuperLike: false };
+    const friendRequestStatus = friendRequests.status === 'fulfilled' ? friendRequests.value : 'none';
+    const hasActiveConversation = conversations.status === 'fulfilled' ? conversations.value : false;
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Usuario no encontrado',
+        error: 'USER_NOT_FOUND'
+      });
+    }
+
+    console.log('✅ Información del perfil obtenida exitosamente');
+
+    res.json({
+      success: true,
+      message: 'Información del perfil obtenida exitosamente',
+      data: {
+        user: {
+          id: user.id,
+          name: user.displayName || user.username,
+          age: user.birthDate ? Math.floor((new Date() - new Date(user.birthDate)) / (365.25 * 24 * 60 * 60 * 1000)) : 0,
+          gender: user.gender,
+          profileImage: user.profileImage,
+          country: user.location?.country || 'Unknown',
+          countryFlag: user.location?.countryFlag || '🌍',
+          isOnline: user.isOnline,
+          description: user.description
+        },
+        superLike: {
+          starsCount: superLikeData.starsCount,
+          hasGivenSuperLike: superLikeData.hasGivenSuperLike
+        },
+        friendRequest: {
+          status: friendRequestStatus
+        },
+        conversation: {
+          hasActiveConversation
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo información del perfil:', error);
     
     res.status(500).json({
       success: false,

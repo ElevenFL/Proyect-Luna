@@ -64,6 +64,14 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
       return;
     }
 
+    // Evitar evaluaciones durante el hot reload o cambios rápidos
+    if (__DEV__ && hasRouteChanged && !hasUserStateChanged) {
+      const timeSinceLastChange = Date.now() - (lastEvaluatedRoute.current ? 0 : Date.now());
+      if (timeSinceLastChange < 500) {
+        return;
+      }
+    }
+
     // Solo loggear cuando hay cambios reales y no es navegación entre tabs
     // Y solo en desarrollo para evitar spam en producción
     if ((hasUserStateChanged || (hasRouteChanged && !isTabNavigation)) && __DEV__) {

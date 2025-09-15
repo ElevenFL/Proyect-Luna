@@ -99,19 +99,42 @@ export const sendMessage = async (req, res) => {
     // Emitir mensaje en tiempo real a la conversación
     const io = req.app.get('socketio');
     if (io) {
-      // Emitir a la sala de la conversación
+      console.log(`📤 Enviando mensaje a conversación ${conversationId}:`, {
+        messageId: message.messageId,
+        senderId: message.senderId,
+        receiverId: message.receiverId,
+        content: message.content?.substring(0, 50) + '...'
+      });
+
+      // Verificar si la sala existe y tiene usuarios
+      const room = io.sockets.adapter.rooms.get(conversationId);
+      const roomSize = room ? room.size : 0;
+      console.log(`📊 Sala ${conversationId} tiene ${roomSize} usuarios conectados`);
+
+      // Emitir a la sala de la conversación (usuarios que se unieron)
       io.to(conversationId).emit('new-message', message);
       
-      // Emitir directamente a los participantes para mayor seguridad
-      const participants = [senderId, receiverId];
-      
-      // Batch de emisiones para eficiencia
-      const emissionPromises = participants.map(userId => {
-        return new Promise((resolve) => {
+      // Emitir actualización de conversación a la sala
+      io.to(conversationId).emit('conversation-updated', {
+        conversationId,
+        lastMessage: message,
+        updatedAt: message.createdAt
+      });
+
+      // Si no hay usuarios en la sala, emitir directamente a los participantes
+      if (roomSize === 0) {
+        console.log(`⚠️ No hay usuarios en la sala ${conversationId}, emitiendo directamente a participantes`);
+        
+        const participants = [senderId, receiverId];
+        
+        participants.forEach(userId => {
           const userSockets = Array.from(io.sockets.sockets.values())
             .filter(socket => socket.userId === String(userId));
           
+          console.log(`📱 Usuario ${userId} tiene ${userSockets.length} sockets conectados`);
+          
           userSockets.forEach(socket => {
+            console.log(`📤 Enviando mensaje directamente a socket ${socket.id} del usuario ${userId}`);
             socket.emit('new-message', message);
             socket.emit('conversation-updated', {
               conversationId,
@@ -119,13 +142,12 @@ export const sendMessage = async (req, res) => {
               updatedAt: message.createdAt
             });
           });
-          
-          resolve(userSockets.length);
         });
-      });
-      
-      // Ejecutar emisiones en paralelo
-      Promise.allSettled(emissionPromises);
+      } else {
+        console.log(`✅ Mensaje enviado a sala ${conversationId} con ${roomSize} usuarios`);
+      }
+    } else {
+      console.error('❌ Socket.IO no disponible para emitir mensaje');
     }
 
     return res.status(201).json({ success: true, data: { message } });

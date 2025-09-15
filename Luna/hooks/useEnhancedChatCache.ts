@@ -2,14 +2,38 @@ import { useState, useEffect, useCallback } from 'react';
 import enhancedCacheService from '@/services/enhancedCacheService';
 import { ChatMessage } from '@/services/optimizedChatService';
 
-interface UseChatCacheOptions {
+interface UseEnhancedChatCacheOptions {
   conversationId: string | null;
   autoSync?: boolean;
   syncInterval?: number; // en milisegundos
 }
 
-interface UseChatCacheReturn {
+interface ConversationMetadata {
+  conversationId: string;
+  lastAccessTime: number;
+  accessCount: number;
+  lastMessageAt: string;
+  unreadCount: number;
+  priority: 'high' | 'medium' | 'low';
+  participants: string[];
+  otherUserInfo?: {
+    id: string;
+    name: string;
+    profileImage?: string;
+    isOnline?: boolean;
+    lastSeen?: string;
+    age?: number;
+    gender?: 'male' | 'female' | 'other';
+    country?: string;
+    countryFlag?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface UseEnhancedChatCacheReturn {
   messages: ChatMessage[];
+  metadata: ConversationMetadata | null;
   isLoading: boolean;
   isSyncing: boolean;
   lastSyncTime: string | null;
@@ -17,33 +41,36 @@ interface UseChatCacheReturn {
   cacheVersion: number;
   syncStatus: 'idle' | 'syncing' | 'error' | 'success';
   isPreloading: boolean;
-  metadata: {
-    accessCount: number;
-    priority: 'high' | 'medium' | 'low';
-    lastAccessTime: number;
-    unreadCount: number;
-  } | null;
+  
+  // Métodos principales
   loadFromCache: () => Promise<void>;
   syncWithServer: (serverMessages: ChatMessage[]) => Promise<void>;
-  syncNewMessagesOnly: (serverMessages: ChatMessage[]) => Promise<void>;
   addMessage: (message: ChatMessage) => Promise<void>;
   clearCache: () => Promise<void>;
   needsSync: () => Promise<boolean>;
-  markAsLoaded: () => Promise<void>;
-  updateMetadata: (updates: any) => Promise<void>;
+  
+  // Gestión de metadata
+  updateMetadata: (updates: Partial<ConversationMetadata>) => Promise<void>;
+  updateUnreadCount: (count: number) => Promise<void>;
+  updateUserInfo: (userInfo: ConversationMetadata['otherUserInfo']) => Promise<void>;
+  
+  // Utilidades
   getCacheStats: () => any;
+  markAsAccessed: () => Promise<void>;
+  setPriority: (priority: 'high' | 'medium' | 'low') => Promise<void>;
 }
 
 /**
- * Hook personalizado para manejar el caché de conversaciones
- * Proporciona una interfaz optimizada para cargar y sincronizar mensajes
+ * Hook mejorado para manejar el caché de conversaciones con el nuevo sistema
+ * Proporciona una interfaz optimizada para cargar y sincronizar mensajes con metadata
  */
-export const useChatCache = ({ 
+export const useEnhancedChatCache = ({ 
   conversationId, 
   autoSync = true, 
   syncInterval = 30000 // 30 segundos por defecto
-}: UseChatCacheOptions): UseChatCacheReturn => {
+}: UseEnhancedChatCacheOptions): UseEnhancedChatCacheReturn => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [metadata, setMetadata] = useState<ConversationMetadata | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
@@ -51,14 +78,8 @@ export const useChatCache = ({
   const [cacheVersion, setCacheVersion] = useState(0);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error' | 'success'>('idle');
   const [isPreloading, setIsPreloading] = useState(false);
-  const [metadata, setMetadata] = useState<{
-    accessCount: number;
-    priority: 'high' | 'medium' | 'low';
-    lastAccessTime: number;
-    unreadCount: number;
-  } | null>(null);
 
-  // Cargar mensajes desde caché
+  // Cargar mensajes y metadata desde caché
   const loadFromCache = useCallback(async () => {
     if (!conversationId) return;
     
@@ -79,22 +100,13 @@ export const useChatCache = ({
       setIsLoaded(cachedMessages.length > 0);
       setCacheVersion(conversationMetadata?.version || 0);
       setSyncStatus('success');
-      
-      // Establecer metadata si existe
-      if (conversationMetadata) {
-        setMetadata({
-          accessCount: conversationMetadata.accessCount,
-          priority: conversationMetadata.priority,
-          lastAccessTime: conversationMetadata.lastAccessTime,
-          unreadCount: conversationMetadata.unreadCount
-        });
-      }
+      setMetadata(conversationMetadata);
       
       // Solo mostrar log si hay mensajes o si es la primera carga
       if (cachedMessages.length > 0) {
-        console.log(`📱 Hook: Cargados ${cachedMessages.length} mensajes desde caché mejorado (v${conversationMetadata?.version || 0})`);
+        console.log(`📱 EnhancedHook: Cargados ${cachedMessages.length} mensajes desde caché mejorado (v${conversationMetadata?.version || 0})`);
       } else {
-        console.log(`📱 Hook: No hay mensajes en caché para ${conversationId}`);
+        console.log(`📱 EnhancedHook: No hay mensajes en caché para ${conversationId}`);
       }
     } catch (error) {
       console.error('Error cargando mensajes desde caché:', error);
@@ -135,69 +147,21 @@ export const useChatCache = ({
         setSyncStatus('success');
         
         // Actualizar versión del caché
-        const metadata = await enhancedCacheService.getConversationMetadata(conversationId);
-        setCacheVersion(metadata?.version || 0);
+        const updatedMetadata = await enhancedCacheService.getConversationMetadata(conversationId);
+        setCacheVersion(updatedMetadata?.version || 0);
+        setMetadata(updatedMetadata);
         
-        console.log(`🔄 Hook: Sincronizados ${serverMessages.length} mensajes totales, ${newMessages.length} nuevos`);
+        console.log(`🔄 EnhancedHook: Sincronizados ${serverMessages.length} mensajes totales, ${newMessages.length} nuevos`);
       } else {
         // No hay mensajes nuevos, solo marcar como sincronizado
         setLastSyncTime(new Date().toISOString());
         setIsLoaded(true);
         setSyncStatus('success');
         
-        console.log(`✅ Hook: No hay mensajes nuevos, caché ya está actualizado`);
+        console.log(`✅ EnhancedHook: No hay mensajes nuevos, caché ya está actualizado`);
       }
     } catch (error) {
       console.error('Error sincronizando con servidor:', error);
-      setSyncStatus('error');
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [conversationId]);
-
-  // Sincronizar solo mensajes nuevos (optimización para conversaciones ya cargadas)
-  const syncNewMessagesOnly = useCallback(async (serverMessages: ChatMessage[]) => {
-    if (!conversationId) return;
-    
-    setIsSyncing(true);
-    setSyncStatus('syncing');
-    
-    try {
-      // Obtener mensajes actuales del caché
-      const currentMessages = await enhancedCacheService.getMessages(conversationId);
-      const currentMessageIds = new Set(currentMessages.map(m => m.messageId));
-      
-      // Filtrar solo mensajes nuevos
-      const newMessages = serverMessages.filter(msg => !currentMessageIds.has(msg.messageId));
-      
-      if (newMessages.length > 0) {
-        // Añadir cada mensaje nuevo al caché
-        for (const message of newMessages) {
-          await enhancedCacheService.addMessage(conversationId, message);
-        }
-        
-        // Recargar mensajes desde caché para mantener consistencia
-        const updatedMessages = await enhancedCacheService.getMessages(conversationId);
-        setMessages(updatedMessages);
-        setLastSyncTime(new Date().toISOString());
-        setIsLoaded(true);
-        setSyncStatus('success');
-        
-        // Actualizar versión del caché
-        const metadata = await enhancedCacheService.getConversationMetadata(conversationId);
-        setCacheVersion(metadata?.version || 0);
-        
-        console.log(`🔄 Hook: Sincronizados ${newMessages.length} mensajes nuevos únicamente`);
-      } else {
-        // No hay mensajes nuevos, solo marcar como sincronizado
-        setLastSyncTime(new Date().toISOString());
-        setIsLoaded(true);
-        setSyncStatus('success');
-        
-        console.log(`✅ Hook: No hay mensajes nuevos, caché ya está actualizado`);
-      }
-    } catch (error) {
-      console.error('Error sincronizando mensajes nuevos:', error);
       setSyncStatus('error');
     } finally {
       setIsSyncing(false);
@@ -221,14 +185,15 @@ export const useChatCache = ({
         setMessages(updatedMessages);
         
         // Actualizar versión del caché
-        const metadata = await enhancedCacheService.getConversationMetadata(conversationId);
-        setCacheVersion(metadata?.version || 0);
+        const updatedMetadata = await enhancedCacheService.getConversationMetadata(conversationId);
+        setCacheVersion(updatedMetadata?.version || 0);
+        setMetadata(updatedMetadata);
         setIsLoaded(true);
         setSyncStatus('success');
         
-        console.log(`➕ Hook: Añadido mensaje ${message.messageId} al caché mejorado`);
+        console.log(`➕ EnhancedHook: Añadido mensaje ${message.messageId} al caché mejorado`);
       } else {
-        console.log(`ℹ️ Hook: Mensaje ${message.messageId} ya existe, ignorando`);
+        console.log(`ℹ️ EnhancedHook: Mensaje ${message.messageId} ya existe, ignorando`);
       }
     } catch (error) {
       console.error('Error añadiendo mensaje al caché:', error);
@@ -247,22 +212,9 @@ export const useChatCache = ({
       setCacheVersion(0);
       setSyncStatus('idle');
       setMetadata(null);
-      console.log(`🗑️ Hook: Limpiado caché de conversación ${conversationId}`);
+      console.log(`🗑️ EnhancedHook: Limpiado caché de conversación ${conversationId}`);
     } catch (error) {
       console.error('Error limpiando caché:', error);
-    }
-  }, [conversationId]);
-
-  // Marcar conversación como cargada
-  const markAsLoaded = useCallback(async () => {
-    if (!conversationId) return;
-    
-    try {
-      // En el caché mejorado, esto se maneja automáticamente
-      setIsLoaded(true);
-      console.log(`✅ Hook: Marcada conversación ${conversationId} como cargada`);
-    } catch (error) {
-      console.error('Error marcando conversación como cargada:', error);
     }
   }, [conversationId]);
 
@@ -281,28 +233,31 @@ export const useChatCache = ({
   }, [conversationId]);
 
   // Actualizar metadata de la conversación
-  const updateMetadata = useCallback(async (updates: any) => {
+  const updateMetadata = useCallback(async (updates: Partial<ConversationMetadata>) => {
     if (!conversationId) return;
     
     try {
       await enhancedCacheService.updateConversationMetadata(conversationId, updates);
       
       // Actualizar metadata local
-      const metadata = await enhancedCacheService.getConversationMetadata(conversationId);
-      if (metadata) {
-        setMetadata({
-          accessCount: metadata.accessCount,
-          priority: metadata.priority,
-          lastAccessTime: metadata.lastAccessTime,
-          unreadCount: metadata.unreadCount
-        });
-      }
+      const updatedMetadata = await enhancedCacheService.getConversationMetadata(conversationId);
+      setMetadata(updatedMetadata);
       
-      console.log(`📝 Hook: Metadata actualizada para conversación ${conversationId}`);
+      console.log(`📝 EnhancedHook: Metadata actualizada para conversación ${conversationId}`);
     } catch (error) {
       console.error('Error actualizando metadata:', error);
     }
   }, [conversationId]);
+
+  // Actualizar contador de mensajes no leídos
+  const updateUnreadCount = useCallback(async (count: number) => {
+    await updateMetadata({ unreadCount: count });
+  }, [updateMetadata]);
+
+  // Actualizar información del usuario
+  const updateUserInfo = useCallback(async (userInfo: ConversationMetadata['otherUserInfo']) => {
+    await updateMetadata({ otherUserInfo: userInfo });
+  }, [updateMetadata]);
 
   // Obtener estadísticas del caché
   const getCacheStats = useCallback(() => {
@@ -313,6 +268,28 @@ export const useChatCache = ({
       return null;
     }
   }, []);
+
+  // Marcar conversación como accedida
+  const markAsAccessed = useCallback(async () => {
+    if (!conversationId) return;
+    
+    try {
+      const currentMetadata = await enhancedCacheService.getConversationMetadata(conversationId);
+      if (currentMetadata) {
+        await updateMetadata({
+          lastAccessTime: Date.now(),
+          accessCount: currentMetadata.accessCount + 1
+        });
+      }
+    } catch (error) {
+      console.error('Error marcando como accedida:', error);
+    }
+  }, [conversationId, updateMetadata]);
+
+  // Establecer prioridad de la conversación
+  const setPriority = useCallback(async (priority: 'high' | 'medium' | 'low') => {
+    await updateMetadata({ priority });
+  }, [updateMetadata]);
 
   // Cargar desde caché cuando cambie la conversación
   useEffect(() => {
@@ -337,7 +314,7 @@ export const useChatCache = ({
     const interval = setInterval(async () => {
       const shouldSync = await needsSync();
       if (shouldSync) {
-        console.log('🔄 Hook: Auto-sincronización detectada como necesaria');
+        console.log('🔄 EnhancedHook: Auto-sincronización detectada como necesaria');
         // Nota: La sincronización real debe ser manejada por el componente padre
         // ya que requiere llamadas al servidor
       }
@@ -348,6 +325,7 @@ export const useChatCache = ({
 
   return {
     messages,
+    metadata,
     isLoading,
     isSyncing,
     lastSyncTime,
@@ -355,15 +333,16 @@ export const useChatCache = ({
     cacheVersion,
     syncStatus,
     isPreloading,
-    metadata,
     loadFromCache,
     syncWithServer,
-    syncNewMessagesOnly,
     addMessage,
     clearCache,
     needsSync,
-    markAsLoaded,
     updateMetadata,
-    getCacheStats
+    updateUnreadCount,
+    updateUserInfo,
+    getCacheStats,
+    markAsAccessed,
+    setPriority
   };
 };
