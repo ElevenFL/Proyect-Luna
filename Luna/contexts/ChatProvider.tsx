@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext';
 import optimizedChatService, { ChatMessage } from '@/services/optimizedChatService';
 import { socketService } from '@/services/socketService';
 import enhancedCacheService from '@/services/enhancedCacheService';
+import readStatusBatchService from '@/services/readStatusBatchService';
 
 interface ChatUser {
   id: string;
@@ -61,6 +62,7 @@ interface ChatContextType {
   // Estados
   getConnectionStatus: () => any;
   refreshChats: () => Promise<void>;
+  syncReadStatusQueue: () => Promise<void>;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -112,6 +114,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Inicializar el servicio de caché mejorado
       await enhancedCacheService.initialize();
 
+      // Inicializar el servicio de sincronización por lotes para mensajes leídos
+      await readStatusBatchService.initialize();
+
       // Asegurar que el servicio de chat optimizado esté inicializado
       if (!optimizedChatService.isInitialized()) {
         await optimizedChatService.initialize(user!.id);
@@ -147,9 +152,32 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           // Obtener mensajes desde el caché mejorado
           const cachedMessages = await enhancedCacheService.getMessages(conv.conversationId);
           
+          // Aplicar estado de lectura local a los mensajes
+          const messagesWithReadStatus = cachedMessages.map(message => {
+            const isRead = readStatusBatchService.isMessageRead(conv.conversationId, message.messageId);
+            return { ...message, read: isRead || message.read };
+          });
+          
           // Obtener metadata de la conversación
           const metadata = await enhancedCacheService.getConversationMetadata(conv.conversationId);
           
+          // Calcular contador de no leídos considerando el estado local
+          let finalUnreadCount = conv.unreadCount || metadata?.unreadCount || 0;
+          
+          // Si hay mensajes marcados como leídos localmente, ajustar el contador
+          const locallyReadMessages = readStatusBatchService.getReadMessages(conv.conversationId);
+          if (locallyReadMessages.length > 0) {
+            // Contar mensajes no leídos del otro usuario que NO están marcados como leídos localmente
+            const unreadFromOtherUser = messagesWithReadStatus.filter(message => {
+              const isFromOtherUser = message.senderId !== user!.id;
+              const isNotReadLocally = !readStatusBatchService.isMessageRead(conv.conversationId, message.messageId);
+              return isFromOtherUser && isNotReadLocally;
+            });
+            
+            finalUnreadCount = unreadFromOtherUser.length;
+            console.log(`📊 ChatProvider: Ajustando contador para ${conv.conversationId}: BD=${conv.unreadCount || 0} -> Local=${finalUnreadCount} (${locallyReadMessages.length} leídos localmente)`);
+          }
+
           // Crear chat activo con información básica
           const activeChat: ActiveChat = {
             conversationId: conv.conversationId,
@@ -164,10 +192,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               country: conv.otherUser?.country || metadata?.otherUserInfo?.country,
               countryFlag: conv.otherUser?.countryFlag || metadata?.otherUserInfo?.countryFlag
             },
-            messages: cachedMessages,
+            messages: messagesWithReadStatus,
             isLoading: false,
             lastActivity: new Date(conv.lastMessageAt || conv.updatedAt || conv.createdAt),
-            unreadCount: conv.unreadCount || metadata?.unreadCount || 0,
+            unreadCount: finalUnreadCount, // Usar el contador ajustado
             isTyping: false,
             lastMessagePreview: conv.lastMessagePreview || undefined, // Usar el preview desde DynamoDB
             metadata: metadata ? {
@@ -220,7 +248,29 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       }
 
-      setActiveChats(newActiveChats);
+      // Preservar estado local de chats existentes si es más reciente
+      setActiveChats(prevChats => {
+        const mergedChats = new Map(newActiveChats);
+        
+        // Para cada chat existente, verificar si tiene estado local más reciente
+        for (const [conversationId, existingChat] of prevChats) {
+          const newChat = mergedChats.get(conversationId);
+          
+          if (newChat && existingChat.unreadCount === 0 && newChat.unreadCount > 0) {
+            // Si el chat local tiene contador 0 (marcado como leído) pero el de BD tiene contador > 0,
+            // preservar el estado local ya que es más reciente
+            console.log(`🔄 ChatProvider: Preservando estado local para ${conversationId} (local: 0, BD: ${newChat.unreadCount})`);
+            mergedChats.set(conversationId, {
+              ...newChat,
+              unreadCount: 0, // Preservar contador local
+              messages: existingChat.messages // Preservar mensajes con estado de lectura local
+            });
+          }
+        }
+        
+        return mergedChats;
+      });
+      
       console.log(`📱 ChatProvider: Cargados ${newActiveChats.size} chats activos con caché mejorado`);
     } catch (error) {
       console.error('❌ ChatProvider: Error cargando conversaciones existentes:', error);
@@ -238,6 +288,11 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (timeSinceLastSync > 300000) { // Solo sincronizar si han pasado más de 5 minutos
         debouncedRefreshChats();
       }
+      
+      // Sincronizar cola de mensajes leídos cuando la app vuelve al primer plano
+      syncReadStatusQueue().catch(error => {
+        console.error('❌ ChatProvider: Error sincronizando cola al volver al primer plano:', error);
+      });
     }
   };
 
@@ -246,7 +301,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     console.log('📨 ChatProvider: Nuevo mensaje recibido:', {
       messageId: message.messageId,
       conversationId: message.conversationId,
-      senderId: message.senderId
+      senderId: message.senderId,
+      currentChatId
     });
 
     // Añadir mensaje al caché mejorado
@@ -275,6 +331,11 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           // Incrementar contador de no leídos solo si no es nuestro mensaje y no es el chat actual
           if (!isFromMe && currentChatId !== message.conversationId) {
             chat.unreadCount += 1;
+            console.log(`📊 ChatProvider: Incrementando contador no leídos para conversación ${message.conversationId} (actual: ${currentChatId})`);
+          } else if (isFromMe) {
+            console.log(`📤 ChatProvider: Mensaje propio, no incrementando contador`);
+          } else if (currentChatId === message.conversationId) {
+            console.log(`👁️ ChatProvider: Usuario está en la conversación activa, no incrementando contador`);
           }
           
           newChats.set(message.conversationId!, chat);
@@ -480,21 +541,39 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       
       // Si no hay mensajes en caché, cargar desde el servidor
       if (cachedMessages.length === 0) {
+        console.log(`🔄 ChatProvider: No hay mensajes en caché, cargando desde servidor para ${conversationId}`);
         const messagesResult = await optimizedChatService.getMessages(conversationId, { limit: 50 });
-        cachedMessages = messagesResult.items.reverse(); // Más recientes primero
+        
+        // Los mensajes del servidor vienen en orden descendente (más recientes primero)
+        // Mantener ese orden para consistencia
+        cachedMessages = messagesResult.items;
         
         // Guardar en caché mejorado
         if (cachedMessages.length > 0) {
           await enhancedCacheService.setMessages(conversationId, cachedMessages);
+          console.log(`💾 ChatProvider: ${cachedMessages.length} mensajes guardados en caché mejorado`);
         }
+      } else {
+        console.log(`✅ ChatProvider: ${cachedMessages.length} mensajes encontrados en caché mejorado`);
       }
       
-      // Actualizar mensajes
+      // Aplicar estado de lectura local a los mensajes
+      const messagesWithReadStatus = cachedMessages.map(message => {
+        const isRead = readStatusBatchService.isMessageRead(conversationId, message.messageId);
+        return { ...message, read: isRead || message.read };
+      });
+      
+      // Actualizar mensajes en el chat activo
       setActiveChats(prev => {
         const newChats = new Map(prev);
         const chat = newChats.get(conversationId);
         if (chat) {
-          chat.messages = cachedMessages;
+          // Asegurar que los mensajes estén en orden descendente (más recientes primero)
+          const sortedMessages = [...messagesWithReadStatus].sort((a, b) => 
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+          
+          chat.messages = sortedMessages;
           chat.isLoading = false;
           newChats.set(conversationId, chat);
         }
@@ -570,33 +649,103 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Marcar como leído
   const markAsRead = async (conversationId: string) => {
     try {
+      console.log(`🔄 ChatProvider: Iniciando markAsRead para conversación ${conversationId}`);
+      
       const chat = activeChats.get(conversationId);
-      if (!chat) return;
+      if (!chat) {
+        console.log(`⚠️ ChatProvider: Chat ${conversationId} no encontrado para marcar como leído`);
+        return;
+      }
 
-      // Obtener mensajes no leídos del otro usuario
-      const unreadMessages = chat.messages.filter(message => 
-        message.senderId !== user!.id && !message.read
-      );
+      console.log(`📊 ChatProvider: Chat encontrado con ${chat.messages.length} mensajes, contador actual: ${chat.unreadCount}`);
+
+      // Obtener mensajes no leídos del otro usuario con verificación mejorada
+      const unreadMessages = chat.messages.filter(message => {
+        const isFromOtherUser = message.senderId !== user!.id;
+        const isNotReadLocally = !message.read;
+        const isNotReadInBatchService = !readStatusBatchService.isMessageRead(conversationId, message.messageId);
+        
+        // Log detallado para debugging
+        const needsUpdate = isFromOtherUser && (isNotReadLocally || isNotReadInBatchService);
+        if (needsUpdate) {
+          console.log(`🔍 Mensaje ${message.messageId}:`, {
+            isFromOtherUser,
+            isNotReadLocally,
+            isNotReadInBatchService,
+            senderId: message.senderId,
+            currentUserId: user!.id,
+            read: message.read
+          });
+        }
+        
+        // Un mensaje se considera no leído si:
+        // 1. Es del otro usuario Y
+        // 2. No está marcado como leído localmente O no está marcado como leído en el servicio de lotes
+        return isFromOtherUser && (isNotReadLocally || isNotReadInBatchService);
+      });
+
+      console.log(`📝 ChatProvider: ${unreadMessages.length} mensajes no leídos encontrados de ${chat.messages.length} total en conversación ${conversationId}`);
 
       if (unreadMessages.length > 0) {
         const messageIds = unreadMessages.map(msg => msg.messageId);
         
-        // Marcar como leídos en el servidor
-        await optimizedChatService.markMessagesAsRead(conversationId, messageIds);
+        console.log(`👁️ ChatProvider: Marcando ${messageIds.length} mensajes como leídos en conversación ${conversationId}:`, messageIds);
         
-        console.log(`👁️ ChatProvider: ${messageIds.length} mensajes marcados como leídos en conversación ${conversationId}`);
-      }
-
-      // Actualizar contador local
-      setActiveChats(prev => {
-        const newChats = new Map(prev);
-        const updatedChat = newChats.get(conversationId);
-        if (updatedChat && updatedChat.unreadCount > 0) {
-          updatedChat.unreadCount = 0;
-          newChats.set(conversationId, updatedChat);
+        // Marcar como leídos localmente primero (inmediato)
+        await readStatusBatchService.markAsRead(conversationId, messageIds);
+        
+        // Actualizar estado local de los mensajes inmediatamente
+        setActiveChats(prev => {
+          const newChats = new Map(prev);
+          const updatedChat = newChats.get(conversationId);
+          if (updatedChat) {
+            // Actualizar estado de lectura de los mensajes
+            updatedChat.messages = updatedChat.messages.map(message => {
+              if (messageIds.includes(message.messageId)) {
+                console.log(`✅ Mensaje ${message.messageId} marcado como leído localmente`);
+                return { ...message, read: true };
+              }
+              return message;
+            });
+            
+            // Resetear contador de no leídos
+            const previousUnreadCount = updatedChat.unreadCount;
+            updatedChat.unreadCount = 0;
+            newChats.set(conversationId, updatedChat);
+            
+            console.log(`📊 ChatProvider: Contador de no leídos actualizado: ${previousUnreadCount} -> 0`);
+            
+            // Forzar re-renderización para actualizar la UI inmediatamente
+            setLastUpdateTimestamp(Date.now());
+          }
+          return newChats;
+        });
+        
+        console.log(`✅ ChatProvider: ${messageIds.length} mensajes marcados como leídos localmente en conversación ${conversationId}`);
+        
+        // Forzar sincronización inmediata para esta conversación (opcional, para mejor UX)
+        readStatusBatchService.forceSyncConversation(conversationId).catch(error => {
+          console.error(`❌ ChatProvider: Error en sincronización forzada para ${conversationId}:`, error);
+        });
+      } else {
+        // Si no hay mensajes no leídos, solo resetear el contador si es necesario
+        if (chat.unreadCount > 0) {
+          console.log(`🔄 ChatProvider: No hay mensajes no leídos pero contador > 0, reseteando contador en conversación ${conversationId}`);
+          setActiveChats(prev => {
+            const newChats = new Map(prev);
+            const updatedChat = newChats.get(conversationId);
+            if (updatedChat && updatedChat.unreadCount > 0) {
+              const previousUnreadCount = updatedChat.unreadCount;
+              updatedChat.unreadCount = 0;
+              newChats.set(conversationId, updatedChat);
+              console.log(`📊 ChatProvider: Contador resetado: ${previousUnreadCount} -> 0`);
+            }
+            return newChats;
+          });
+        } else {
+          console.log(`ℹ️ ChatProvider: No hay mensajes no leídos ni contador que resetear en conversación ${conversationId}`);
         }
-        return newChats;
-      });
+      }
     } catch (error) {
       console.error('❌ ChatProvider: Error marcando mensajes como leídos:', error);
       
@@ -605,6 +754,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const newChats = new Map(prev);
         const chat = newChats.get(conversationId);
         if (chat && chat.unreadCount > 0) {
+          console.log(`🔄 ChatProvider: Error ocurrió pero reseteando contador para UX: ${chat.unreadCount} -> 0`);
           chat.unreadCount = 0;
           newChats.set(conversationId, chat);
         }
@@ -698,10 +848,20 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       let total = 0;
       
       for (const conv of conversations.items) {
-        total += conv.unreadCount || 0;
+        let convUnreadCount = conv.unreadCount || 0;
+        
+        // Ajustar contador considerando estado local de lectura
+        const locallyReadMessages = readStatusBatchService.getReadMessages(conv.conversationId);
+        if (locallyReadMessages.length > 0) {
+          // Si hay mensajes marcados como leídos localmente, reducir el contador
+          // Esto es una aproximación - en un caso ideal deberíamos contar mensajes reales
+          convUnreadCount = Math.max(0, convUnreadCount - locallyReadMessages.length);
+        }
+        
+        total += convUnreadCount;
       }
       
-      console.log(`📊 ChatProvider: Total mensajes no leídos desde BD: ${total}`);
+      console.log(`📊 ChatProvider: Total mensajes no leídos desde BD (ajustado): ${total}`);
       return total;
     } catch (error) {
       console.error('❌ ChatProvider: Error obteniendo contador desde BD:', error);
@@ -747,6 +907,16 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return optimizedChatService.getConnectionStatus();
   };
 
+  // Sincronizar cola de mensajes leídos manualmente
+  const syncReadStatusQueue = async () => {
+    try {
+      await readStatusBatchService.syncBatchQueue();
+      console.log('✅ ChatProvider: Cola de mensajes leídos sincronizada');
+    } catch (error) {
+      console.error('❌ ChatProvider: Error sincronizando cola de mensajes leídos:', error);
+    }
+  };
+
   // Limpiar al desmontar
   const cleanup = async () => {
     console.log('🧹 ChatProvider: Limpiando proveedor de chat');
@@ -762,11 +932,25 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       messageListenerAttached.current = false;
     }
     
+    // Sincronizar cola de mensajes leídos antes de limpiar
+    try {
+      await readStatusBatchService.syncBatchQueue();
+    } catch (error) {
+      console.error('Error sincronizando cola de mensajes leídos:', error);
+    }
+    
     // Ejecutar limpieza del caché mejorado
     try {
       await enhancedCacheService.performCleanup();
     } catch (error) {
       console.error('Error en limpieza del caché mejorado:', error);
+    }
+    
+    // Destruir servicio de sincronización por lotes
+    try {
+      readStatusBatchService.destroy();
+    } catch (error) {
+      console.error('Error destruyendo servicio de sincronización por lotes:', error);
     }
     
     setActiveChats(new Map());
@@ -800,7 +984,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     getUnreadCountFromDatabase,
     getOtherUserInfo,
     getConnectionStatus,
-    refreshChats
+    refreshChats,
+    syncReadStatusQueue
   };
 
   return (

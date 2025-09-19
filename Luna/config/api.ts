@@ -20,7 +20,8 @@ export const API_CONFIG = {
     FOLDERS: {
       PROFILE: 'profile-images',
       POSTS: 'post-images',
-      MESSAGES: 'message-images'
+      MESSAGES: 'message-images',
+      STORIES: 'story-images'
     }
   }
 };

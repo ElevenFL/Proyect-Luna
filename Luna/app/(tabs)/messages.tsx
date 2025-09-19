@@ -6,7 +6,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatProvider';
 import { useFriends } from '@/hooks/useFriends';
+import { useStories } from '@/contexts/StoriesContext';
 import OptimizedImage from '@/components/OptimizedImage';
+import StoryRing from '@/components/StoryRing';
 
 interface ConversationItem {
   conversationId: string;
@@ -39,11 +41,13 @@ export default function GlobalMessagesScreen() {
     openChat
   } = useChat();
   const { friends, isLoading: friendsLoading, refreshFriends } = useFriends();
+  const { stories, userStories, hasUnviewedStories } = useStories();
   
   const [searchQuery, setSearchQuery] = useState('');
   const [hiddenConversations, setHiddenConversations] = useState<Set<string>>(new Set());
   const [localLoading, setLocalLoading] = useState(true);
-  const [unreadCountFromDB, setUnreadCountFromDB] = useState(0);
+  // Usar el contador local optimizado del ChatProvider
+  const localUnreadCount = getUnreadCount();
 
   // Convertir chats activos a formato de conversaciones para la UI
   const conversations: ConversationItem[] = React.useMemo(() => {
@@ -82,13 +86,20 @@ export default function GlobalMessagesScreen() {
     );
   }, [conversations, searchQuery]);
 
-  // Función para actualizar contador desde la base de datos
-  const updateUnreadCountFromDB = async () => {
+  // Función para sincronizar estado local con BD (solo para verificación ocasional)
+  const syncUnreadCountWithDB = async () => {
     try {
-      const count = await getUnreadCountFromDatabase();
-      setUnreadCountFromDB(count);
+      // Solo sincronizar ocasionalmente para verificar consistencia
+      const dbCount = await getUnreadCountFromDatabase();
+      const localCount = getUnreadCount();
+      
+      if (Math.abs(dbCount - localCount) > 0) {
+        console.log(`🔄 GlobalMessages: Diferencia en contadores - Local: ${localCount}, BD: ${dbCount}`);
+        // Si hay diferencia significativa, refrescar chats
+        await refreshChats();
+      }
     } catch (error) {
-      console.error('❌ GlobalMessages: Error actualizando contador desde BD:', error);
+      console.error('❌ GlobalMessages: Error sincronizando contador con BD:', error);
     }
   };
 
@@ -101,10 +112,10 @@ export default function GlobalMessagesScreen() {
         setLocalLoading(true);
         console.log('🚀 GlobalMessages: Cargando mensajes globales');
         
-        // Actualizar contador desde la base de datos y cargar amigos
+        // Cargar amigos y verificar consistencia de contadores
         await Promise.all([
-          updateUnreadCountFromDB(),
-          refreshFriends()
+          refreshFriends(),
+          syncUnreadCountWithDB() // Verificación ocasional de consistencia
         ]);
         
         // El ChatProvider ya maneja la carga inicial
@@ -127,10 +138,9 @@ export default function GlobalMessagesScreen() {
     useCallback(() => {
       if (user?.id) {
         console.log('🔄 GlobalMessages: Foco recibido');
-        // Actualizar contador desde la base de datos y amigos cuando la pantalla recibe foco
-        updateUnreadCountFromDB();
+        // Refrescar amigos y verificar consistencia cuando la pantalla recibe foco
         refreshFriends();
-        // Solo refrescar si han pasado más de 30 segundos desde la última carga
+        syncUnreadCountWithDB(); // Verificación ocasional de consistencia
         // El ChatProvider ya maneja su propio refresco automático
       }
     }, [user?.id, refreshFriends])
@@ -402,21 +412,36 @@ export default function GlobalMessagesScreen() {
       {/* Sección de avatares - Solo amigos */}
       <View style={styles.avatarsSection}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.avatarsContainer}>
-          <TouchableOpacity style={styles.addButton}>
+          {/* Botón para crear Story */}
+          <TouchableOpacity 
+            style={styles.addButton}
+            onPress={() => {
+              console.log('➕ Botón de crear Story presionado');
+              router.push('/create-story');
+            }}
+          >
             <Ionicons name="add" size={20} color="#000000" />
           </TouchableOpacity>
           
-          {/* Mostrar primeros amigos */}
+          {/* Mostrar primeros amigos con Stories */}
           {friends.slice(0, 4).map((friend) => {
             // Buscar si hay un chat activo con este amigo
             const activeChat = Array.from(activeChats.values()).find(chat => chat.otherUser.id === friend.id);
+            
+            // Buscar stories de este amigo
+            const friendStories = stories.filter(story => story.userId === friend.id);
+            const hasUnviewedFriendStories = friendStories.some(story => !story.isViewed);
             
             return (
               <TouchableOpacity 
                 key={friend.id}
                 style={styles.avatarCircle}
                 onPress={() => {
-                  if (activeChat) {
+                  if (friendStories.length > 0) {
+                    // Si tiene stories, navegar a verlos primero
+                    console.log(`📖 Ver stories de ${friend.name}`);
+                    router.push('/view-stories');
+                  } else if (activeChat) {
                     // Si hay chat activo, navegar a él
                     handleConversationPress({
                       conversationId: activeChat.conversationId,
@@ -444,20 +469,26 @@ export default function GlobalMessagesScreen() {
                   }
                 }}
               >
-                {friend.profileImage && friend.profileImage.trim() !== '' ? (
-                  <OptimizedImage 
-                    uri={friend.profileImage} 
-                    style={styles.avatarImage}
-                    cachePolicy="memory-disk"
-                    priority="high" // Prioridad alta para avatares visibles
-                    placeholder={undefined}
-                    fallback={undefined}
-                  />
-                ) : (
-                  <Text style={styles.avatarInitialsText}>
-                    {getInitials(friend.name)}
-                  </Text>
-                )}
+                <StoryRing 
+                  hasStory={friendStories.length > 0} 
+                  isViewed={!hasUnviewedFriendStories}
+                >
+                  {friend.profileImage && friend.profileImage.trim() !== '' ? (
+                    <OptimizedImage 
+                      uri={friend.profileImage} 
+                      style={styles.avatarImage}
+                      cachePolicy="memory-disk"
+                      priority="high" // Prioridad alta para avatares visibles
+                      placeholder={undefined}
+                      fallback={undefined}
+                    />
+                  ) : (
+                    <Text style={styles.avatarInitialsText}>
+                      {getInitials(friend.name)}
+                    </Text>
+                  )}
+                </StoryRing>
+                
                 {/* Mostrar badge de mensajes no leídos si hay chat activo */}
                 {activeChat && activeChat.unreadCount > 0 && (
                   <View style={styles.avatarBadge}>
@@ -466,6 +497,7 @@ export default function GlobalMessagesScreen() {
                     </Text>
                   </View>
                 )}
+                
                 {/* Indicador de estado online */}
                 <View style={[
                   styles.avatarStatusIndicator,
@@ -501,10 +533,10 @@ export default function GlobalMessagesScreen() {
       </View>
 
       {/* Contador de mensajes no leídos */}
-      {unreadCountFromDB > 0 && (
+      {localUnreadCount > 0 && (
         <View style={styles.unreadCountContainer}>
           <Text style={styles.unreadCountText}>
-            {unreadCountFromDB} mensaje{unreadCountFromDB > 1 ? 's' : ''} sin leer
+            {localUnreadCount} mensaje{localUnreadCount > 1 ? 's' : ''} sin leer
           </Text>
         </View>
       )}
@@ -543,7 +575,7 @@ export default function GlobalMessagesScreen() {
           onRefresh={async () => {
             await Promise.all([
               refreshChats(),
-              updateUnreadCountFromDB(),
+              syncUnreadCountWithDB(), // Verificación de consistencia
               refreshFriends()
             ]);
           }}

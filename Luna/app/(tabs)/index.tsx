@@ -9,6 +9,8 @@ import ApiService from '@/services/apiService';
 import { getFlagFromAddress } from '@/utils/countryFlags';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePrefetch, UserWithPrefetch } from '@/contexts/PrefetchContext';
+import { useStories } from '@/contexts/StoriesContext';
+import StoriesDebugger from '@/components/StoriesDebugger';
 
 // Datos de ejemplo de usuarios con información de conexión y ubicaciones reales
 const createMockUsers = (): User[] => {
@@ -114,6 +116,7 @@ const createMockUsers = (): User[] => {
 export default function HomeScreen() {
   const { user: currentUser } = useAuth();
   const { setPrefetchedUsers } = usePrefetch();
+  const { getStoriesByUser } = useStories();
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -281,6 +284,21 @@ export default function HomeScreen() {
     });
   };
 
+  const handleStoryPress = (user: User) => {
+    console.log('Story pressed for user:', user.name);
+    
+    // Verificar si el usuario tiene historias activas
+    const userStories = getStoriesByUser(user.id);
+    
+    if (userStories.length > 0) {
+      // Navegar a la pantalla de historias
+      router.push('/view-stories');
+    } else {
+      // Si no hay historias, navegar al perfil
+      handleUserPress(user);
+    }
+  };
+
   const handleFilterPress = () => {
     console.log('Filter pressed');
     setShowFilterModal(true);
@@ -301,7 +319,11 @@ export default function HomeScreen() {
   };
 
   const renderUserItem = ({ item }: { item: User }) => (
-    <UserCard user={item} onPress={handleUserPress} />
+    <UserCard 
+      user={item} 
+      onPress={handleUserPress}
+      onStoryPress={handleStoryPress}
+    />
   );
 
   const renderSeparator = () => <View style={styles.separator} />;
@@ -363,6 +385,9 @@ export default function HomeScreen() {
           onApplyFilters={handleApplyFilters}
           currentFilters={currentFilters}
         />
+
+        {/* Stories Debugger - Solo en desarrollo */}
+        {/* <StoriesDebugger /> */}
     </View>
   );
 }

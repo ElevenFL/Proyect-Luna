@@ -517,12 +517,8 @@ class OptimizedChatService {
         // Combinar mensajes existentes con nuevos
         const existingMessages = cachedConv?.messages || [];
         
-        // Los mensajes del servidor vienen en orden descendente, mantener ese orden
-        const sortedNewMessages = [...newMessages].sort((a, b) => 
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        
-        const allMessages = [...existingMessages, ...sortedNewMessages]
+        // Los mensajes del servidor ya vienen en orden descendente, no reordenar
+        const allMessages = [...existingMessages, ...newMessages]
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, this.MAX_CACHED_MESSAGES); // Mantener los más recientes
 
@@ -703,13 +699,11 @@ class OptimizedChatService {
       const serverMessages = response.data?.items || [];
       
       if (serverMessages.length > 0) {
-        // Los mensajes vienen en orden descendente (más recientes primero) desde el backend
-        // Mantener ese orden para consistencia con la UI
-        const sortedMessages = [...serverMessages].sort((a, b) => 
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        this.updateConversationCache(conversationId, sortedMessages);
+        // Los mensajes del servidor ya vienen en orden descendente (más recientes primero)
+        // No necesitamos reordenarlos, mantener el orden original
+        this.updateConversationCache(conversationId, serverMessages);
         await this.saveCacheToStorage();
+        console.log(`🔄 OptimizedChat: Sincronizados ${serverMessages.length} mensajes para conversación ${conversationId}`);
       }
     } catch (error) {
       console.error(`❌ OptimizedChat: Error en sincronización async:`, error);

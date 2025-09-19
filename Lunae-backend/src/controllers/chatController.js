@@ -279,22 +279,93 @@ export const markMessagesAsRead = async (req, res) => {
     const { messageIds } = req.body;
     const currentUserId = req.user?.id || req.user?.userId;
 
+    console.log(`🔄 markMessagesAsRead: Iniciando para conversación ${conversationId} con ${messageIds?.length || 0} mensajes`);
+
+    // Validaciones básicas
     if (!conversationId || !messageIds || !Array.isArray(messageIds)) {
-      return res.status(400).json({ success: false, message: 'Datos incompletos' });
+      console.log('❌ markMessagesAsRead: Datos incompletos', { conversationId, messageIds });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Datos incompletos: conversationId y messageIds (array) son requeridos' 
+      });
+    }
+
+    // Validar que messageIds no esté vacío
+    if (messageIds.length === 0) {
+      console.log('⚠️ markMessagesAsRead: Array de messageIds vacío');
+      return res.json({ 
+        success: true, 
+        message: 'No hay mensajes para marcar como leídos' 
+      });
+    }
+
+    // Validar formato de messageIds
+    const invalidMessageIds = messageIds.filter(id => 
+      !id || typeof id !== 'string' || id.trim().length === 0
+    );
+    
+    if (invalidMessageIds.length > 0) {
+      console.log('❌ markMessagesAsRead: messageIds con formato inválido', invalidMessageIds);
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Algunos messageIds tienen formato inválido' 
+      });
     }
 
     // Validar que el usuario pertenece a la conversación
     const conversation = await Chat.getConversationMetadata([conversationId]);
     if (!conversation.length || !conversation[0].participants?.includes(currentUserId)) {
-      return res.status(403).json({ success: false, message: 'No autorizado para esta conversación' });
+      console.log('❌ markMessagesAsRead: Usuario no autorizado para esta conversación', { 
+        conversationId, 
+        currentUserId,
+        participants: conversation[0]?.participants 
+      });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'No autorizado para esta conversación' 
+      });
     }
 
+    console.log(`✅ markMessagesAsRead: Validaciones pasadas, verificando mensajes no leídos...`);
+
+    // Verificar que hay mensajes realmente no leídos antes de procesar
+    const unreadMessages = await Chat.getUnreadMessagesForUser(conversationId, currentUserId, messageIds);
+    
+    if (unreadMessages.length === 0) {
+      console.log('ℹ️ markMessagesAsRead: Todos los mensajes ya están marcados como leídos');
+      return res.json({ 
+        success: true, 
+        message: 'Todos los mensajes ya están marcados como leídos',
+        data: {
+          conversationId,
+          requestedCount: messageIds.length,
+          processedCount: 0
+        }
+      });
+    }
+
+    console.log(`📝 markMessagesAsRead: ${unreadMessages.length} de ${messageIds.length} mensajes necesitan ser marcados como leídos`);
+
+    // Procesar solo los mensajes que realmente necesitan actualización
     await Chat.markMessagesAsRead(conversationId, messageIds, currentUserId);
     
-    return res.json({ success: true, message: 'Mensajes marcados como leídos' });
+    console.log(`✅ markMessagesAsRead: Completado exitosamente para conversación ${conversationId}`);
+    return res.json({ 
+      success: true, 
+      message: 'Mensajes marcados como leídos',
+      data: {
+        conversationId,
+        requestedCount: messageIds.length,
+        processedCount: unreadMessages.length
+      }
+    });
   } catch (error) {
-    console.error('markMessagesAsRead error', error);
-    return res.status(500).json({ success: false, message: 'Error interno' });
+    console.error('❌ markMessagesAsRead error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Error interno del servidor',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 

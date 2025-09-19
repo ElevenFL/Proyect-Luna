@@ -11,6 +11,7 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { ConversationProvider } from '@/contexts/ConversationContext';
 import { ChatProvider } from '@/contexts/ChatProvider';
 import { PrefetchProvider } from '@/contexts/PrefetchContext';
+import { StoriesProvider } from '@/contexts/StoriesContext';
 import SafeAlert from '@/components/SafeAlert';
 import { AppInitializer } from '@/components/AppInitializer';
 import '@/config/amplify'; // Inicializar Amplify
@@ -45,7 +46,8 @@ export default function RootLayout() {
         <PrefetchProvider>
           <ConversationProvider>
             <ChatProvider>
-              <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+              <StoriesProvider>
+                <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
                 <Stack
                   screenOptions={{
                     headerShown: false,
@@ -56,6 +58,8 @@ export default function RootLayout() {
                   <Stack.Screen name="(tabs)" />
                   <Stack.Screen name="user-profile" />
                   <Stack.Screen name="chat/[userId]" />
+                  <Stack.Screen name="create-story" />
+                  <Stack.Screen name="view-stories" />
                   <Stack.Screen name="+not-found" />
                 </Stack>
                 <StatusBar style="auto" />
@@ -64,7 +68,8 @@ export default function RootLayout() {
                   <View style={{ position: 'absolute', top: 80, right: 10, zIndex: 9999 }}>
                   </View>
                 )}
-              </ThemeProvider>
+                </ThemeProvider>
+              </StoriesProvider>
             </ChatProvider>
           </ConversationProvider>
         </PrefetchProvider>

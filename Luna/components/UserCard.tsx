@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import OptimizedImage from './OptimizedImage';
+import StoryRing from './StoryRing';
+import { useStories } from '@/contexts/StoriesContext';
 
 export interface User {
   id: string;
@@ -21,9 +23,32 @@ export interface User {
 interface UserCardProps {
   user: User;
   onPress?: (user: User) => void;
+  onStoryPress?: (user: User) => void;
 }
 
-export const UserCard: React.FC<UserCardProps> = ({ user, onPress }) => {
+export const UserCard: React.FC<UserCardProps> = ({ user, onPress, onStoryPress }) => {
+  const { getStoriesByUser, isLoading, stories } = useStories();
+  const [userStories, setUserStories] = useState<any[]>([]);
+  
+  // Actualizar historias del usuario cuando cambien las historias globales
+  useEffect(() => {
+    if (!isLoading && stories.length >= 0) {
+      const userStories = getStoriesByUser(user.id);
+      setUserStories(userStories);
+      if (userStories.length > 0) {
+        console.log(`🔄 UserCard: Actualizando historias para ${user.name}: ${userStories.length} stories`);
+      }
+    }
+  }, [stories, isLoading, user.id, getStoriesByUser]);
+  
+  const hasActiveStories = userStories.length > 0;
+  const hasUnviewedStories = userStories.some(story => !story.isViewed);
+
+  // Debug logs (reducidos)
+  if (userStories.length > 0) {
+    console.log(`✅ UserCard: Usuario ${user.name} tiene ${userStories.length} stories - StoryRing debería aparecer`);
+  }
+
   const getGenderIcon = () => {
     switch (user.gender) {
       case 'male':
@@ -80,22 +105,39 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress }) => {
       activeOpacity={0.7}
     >
       <View style={styles.content}>
-        {/* Profile Picture */}
+        {/* Profile Picture with Story Ring */}
         <View style={styles.profileContainer}>
-          {user.profileImage ? (
-            <OptimizedImage 
-              uri={user.profileImage} 
-              style={styles.profileImage}
-              cachePolicy="memory-disk"
-              priority="normal"
-            />
-          ) : (
-            <View style={styles.profilePlaceholder}>
-              <Text style={styles.initialsText}>
-                {getInitials(user.name)}
-              </Text>
-            </View>
-          )}
+          <TouchableOpacity
+            onPress={() => {
+              if (hasActiveStories && onStoryPress) {
+                onStoryPress(user);
+              } else if (onPress) {
+                onPress(user);
+              }
+            }}
+            activeOpacity={0.7}
+          >
+            <StoryRing
+              size={56}
+              hasStory={hasActiveStories}
+              isViewed={!hasUnviewedStories}
+            >
+              {user.profileImage ? (
+                <OptimizedImage 
+                  uri={user.profileImage} 
+                  style={styles.profileImage}
+                  cachePolicy="memory-disk"
+                  priority="normal"
+                />
+              ) : (
+                <View style={styles.profilePlaceholder}>
+                  <Text style={styles.initialsText}>
+                    {getInitials(user.name)}
+                  </Text>
+                </View>
+              )}
+            </StoryRing>
+          </TouchableOpacity>
           
           {/* Online Status Indicator */}
           <View style={[

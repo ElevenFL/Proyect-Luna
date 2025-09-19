@@ -130,21 +130,42 @@ export function useNotifications(config: NotificationConfig = {
     message: ChatMessage, 
     senderName?: string,
     isInActiveConversation: boolean = false,
-    isAppInForeground: boolean = true
+    isAppInForeground: boolean = true,
+    currentChatId?: string | null
   ) => {
-    // No mostrar notificación si el usuario está activamente en esa conversación
-    if (isInActiveConversation && isAppInForeground) {
+    console.log('🔔 useNotifications: Procesando notificación de mensaje:', {
+      messageId: message.messageId,
+      conversationId: message.conversationId,
+      isInActiveConversation,
+      isAppInForeground,
+      currentChatId,
+      senderName
+    });
+
+    // No mostrar notificación si el usuario está activamente en esa conversación específica
+    if (isInActiveConversation && isAppInForeground && currentChatId === message.conversationId) {
+      console.log('🔔 useNotifications: Usuario está en la conversación activa, omitiendo notificación');
       return;
     }
 
-    // Vibrar para todos los mensajes nuevos
-    vibrate();
+    // No mostrar notificación si el mensaje es del propio usuario
+    if (message.senderId === message.receiverId) {
+      console.log('🔔 useNotifications: Mensaje del propio usuario, omitiendo notificación');
+      return;
+    }
+
+    // Vibrar para todos los mensajes nuevos (excepto si está en la conversación activa)
+    if (!(isInActiveConversation && currentChatId === message.conversationId)) {
+      vibrate();
+    }
 
     if (isAppInForeground) {
       // App en primer plano - mostrar notificación in-app
+      console.log('🔔 useNotifications: Mostrando notificación in-app');
       showInAppNotification(message, senderName);
     } else {
       // App en segundo plano - mostrar notificación push
+      console.log('🔔 useNotifications: Mostrando notificación push');
       await showLocalNotification(message, senderName);
     }
   }, [vibrate, showInAppNotification, showLocalNotification]);

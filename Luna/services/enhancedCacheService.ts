@@ -98,8 +98,13 @@ class EnhancedCacheService {
    */
   async setMessages(conversationId: string, messages: ChatMessage[], metadata: Partial<ConversationMetadata> = {}): Promise<void> {
     try {
-      // Limitar mensajes a 50 por conversación
-      const limitedMessages = messages.slice(-this.MAX_MESSAGES_PER_CONVERSATION);
+      // Asegurar que los mensajes estén en orden descendente (más recientes primero)
+      const sortedMessages = [...messages].sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      
+      // Limitar mensajes a 50 por conversación (mantener los más recientes)
+      const limitedMessages = sortedMessages.slice(0, this.MAX_MESSAGES_PER_CONVERSATION);
       
       // Obtener o crear metadata
       const existingConv = this.memoryCache.get(conversationId);
@@ -107,7 +112,7 @@ class EnhancedCacheService {
         conversationId,
         lastAccessTime: Date.now(),
         accessCount: (existingConv?.metadata.accessCount || 0) + 1,
-        lastMessageAt: limitedMessages[limitedMessages.length - 1]?.createdAt || new Date().toISOString(),
+        lastMessageAt: limitedMessages[0]?.createdAt || new Date().toISOString(), // El primer mensaje es el más reciente
         unreadCount: metadata.unreadCount || 0,
         priority: this.calculatePriority(existingConv?.metadata),
         participants: metadata.participants || existingConv?.metadata.participants || [],
@@ -131,7 +136,7 @@ class EnhancedCacheService {
       // Decidir si persistir basado en prioridad y uso
       await this.updatePersistence(cachedConversation);
       
-      console.log(`✅ EnhancedCache: Guardados ${limitedMessages.length} mensajes para conversación ${conversationId}`);
+      console.log(`✅ EnhancedCache: Guardados ${limitedMessages.length} mensajes para conversación ${conversationId} (ordenados por fecha)`);
     } catch (error) {
       console.error('Error guardando mensajes en caché:', error);
     }
@@ -157,11 +162,11 @@ class EnhancedCacheService {
         return;
       }
 
-      // Añadir mensaje y mantener límite de 50
+      // Añadir mensaje y mantener orden descendente (más recientes primero)
       conversation.messages.push(message);
-      if (conversation.messages.length > this.MAX_MESSAGES_PER_CONVERSATION) {
-        conversation.messages = conversation.messages.slice(-this.MAX_MESSAGES_PER_CONVERSATION);
-      }
+      conversation.messages = conversation.messages
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, this.MAX_MESSAGES_PER_CONVERSATION); // Mantener solo los más recientes
 
       // Actualizar metadata
       conversation.metadata.lastMessageAt = message.createdAt;

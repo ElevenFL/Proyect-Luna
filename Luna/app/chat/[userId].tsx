@@ -121,19 +121,29 @@ const GlobalChatScreen = React.memo(() => {
     
     // Marcar mensajes como leídos cuando el usuario está viendo el chat
     // Solo si está cerca del final (viendo los mensajes más recientes)
-    // Usar debounce para evitar llamadas excesivas
+    // Usar debounce más agresivo para evitar llamadas excesivas
     if (isNearBottom.current && conversationId) {
       if (markAsReadTimeoutRef.current) {
         clearTimeout(markAsReadTimeoutRef.current);
       }
       
       markAsReadTimeoutRef.current = setTimeout(() => {
-        markAsRead(conversationId).catch(error => {
-          console.error('❌ GlobalChat: Error marcando como leído durante scroll:', error);
-        });
-      }, 1000); // Esperar 1 segundo después del último scroll
+        // Solo marcar si realmente hay mensajes no leídos
+        const hasUnreadMessages = messages.some(m => 
+          m.senderId !== currentUserId && !m.read
+        );
+        
+        if (hasUnreadMessages) {
+          console.log('👁️ GlobalChat: Marcando mensajes como leídos durante scroll');
+          markAsRead(conversationId).catch(error => {
+            console.error('❌ GlobalChat: Error marcando como leído durante scroll:', error);
+          });
+        } else {
+          console.log('ℹ️ GlobalChat: No hay mensajes no leídos, omitiendo marcado durante scroll');
+        }
+      }, 3000); // Aumentar a 3 segundos para reducir llamadas
     }
-  }, [conversationId, markAsRead]);
+  }, [conversationId, markAsRead, messages, currentUserId]);
 
   // Función para cargar mensajes anteriores (paginación)
   const loadOlderMessages = useCallback(async () => {
@@ -155,7 +165,6 @@ const GlobalChatScreen = React.memo(() => {
 
       if (response.items && response.items.length > 0) {
         // Los mensajes vienen del backend en orden descendente (más recientes primero)
-        // No necesitamos hacer reverse() ya que queremos mantener el orden cronológico
         const olderMessages = response.items;
         console.log(`📜 Chat: ${olderMessages.length} mensajes anteriores cargados`);
         
@@ -166,17 +175,12 @@ const GlobalChatScreen = React.memo(() => {
             index === self.findIndex(m => m.messageId === message.messageId)
           );
           
-          // Ordenar por fecha (más recientes primero para el FlatList invertido)
-          return uniqueMessages.sort((a, b) => 
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          );
+          // Los mensajes ya están en orden descendente, mantener ese orden
+          return uniqueMessages;
         });
 
-        // Actualizar el ID del mensaje más antiguo (está al final del array ordenado)
-        const sortedOlderMessages = [...olderMessages].sort((a, b) => 
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        );
-        const newOldestMessage = sortedOlderMessages[0];
+        // Actualizar el ID del mensaje más antiguo (está al final del array ya ordenado)
+        const newOldestMessage = olderMessages[olderMessages.length - 1];
         setOldestMessageId(newOldestMessage.messageId);
 
         // Si se cargaron menos mensajes del límite, no hay más
@@ -324,6 +328,9 @@ const GlobalChatScreen = React.memo(() => {
   useEffect(() => {
     if (conversationId) {
       const chatMessages = getMessages(conversationId);
+      
+      // Los mensajes del ChatProvider ya vienen en orden descendente (más recientes primero)
+      // No necesitamos reordenarlos
       setMessages(chatMessages);
       setMessagesLoaded(true); // Marcar que los mensajes se han cargado
       
@@ -341,16 +348,25 @@ const GlobalChatScreen = React.memo(() => {
       
       console.log(`📨 GlobalChat: Sincronizados ${chatMessages.length} mensajes del ChatProvider`);
       
+      // Verificar si hay mensajes no leídos y marcarlos como leídos automáticamente
+      // SOLO si es la primera carga de mensajes (no en actualizaciones)
+      if (chatMessages.length > 0 && !messagesLoaded) {
+        const unreadMessages = chatMessages.filter(message => 
+          message.senderId !== currentUserId && message.read === false
+        );
+        
+        if (unreadMessages.length > 0) {
+          console.log(`👁️ GlobalChat: Primera carga - ${unreadMessages.length} mensajes no leídos encontrados, marcando como leídos...`);
+          markAsRead(conversationId).catch(error => {
+            console.error('❌ GlobalChat: Error marcando mensajes como leídos en primera carga:', error);
+          });
+        }
+      }
+      
       // Inicializar estados de paginación solo una vez
       if (chatMessages.length > 0) {
-        // Para FlatList invertido, necesitamos mensajes en orden descendente (más recientes primero)
-        const sortedMessages = [...chatMessages].sort((a, b) => 
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        setMessages(sortedMessages); // Actualizar mensajes con el orden correcto
-        
-        // El mensaje más antiguo está al final del array ordenado
-        const oldestMessage = sortedMessages[sortedMessages.length - 1];
+        // El mensaje más antiguo está al final del array (ya ordenado)
+        const oldestMessage = chatMessages[chatMessages.length - 1];
         setOldestMessageId(oldestMessage.messageId);
         setHasMoreMessages(chatMessages.length >= 50); // Si hay 50 o más, probablemente hay más
         
@@ -370,12 +386,24 @@ const GlobalChatScreen = React.memo(() => {
       const newMessageIds = chatMessages.map(m => m.messageId).sort().join(',');
       
       if (currentMessageIds !== newMessageIds) {
-        // Ordenar mensajes en orden descendente para FlatList invertido
-        const sortedMessages = [...chatMessages].sort((a, b) => 
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        setMessages(sortedMessages);
+        // Los mensajes del ChatProvider ya vienen en orden descendente
+        setMessages(chatMessages);
         console.log(`📨 GlobalChat: Mensajes actualizados: ${chatMessages.length}`);
+        
+        // Verificar si hay mensajes no leídos en los nuevos mensajes
+        // SOLO marcar si el usuario está viendo el chat activamente (cerca del final)
+        const unreadMessages = chatMessages.filter(message => 
+          message.senderId !== currentUserId && message.read === false
+        );
+        
+        if (unreadMessages.length > 0 && isNearBottom.current) {
+          console.log(`👁️ GlobalChat: Actualización - ${unreadMessages.length} mensajes no leídos encontrados, usuario viendo chat, marcando como leídos...`);
+          markAsRead(conversationId).catch(error => {
+            console.error('❌ GlobalChat: Error marcando mensajes como leídos en actualización:', error);
+          });
+        } else if (unreadMessages.length > 0) {
+          console.log(`ℹ️ GlobalChat: ${unreadMessages.length} mensajes no leídos en actualización, pero usuario no está viendo el chat, omitiendo marcado`);
+        }
         
         // Scroll automático para mensajes nuevos (sin animación)
         setTimeout(() => scrollToEnd(false), 100);
@@ -387,11 +415,8 @@ const GlobalChatScreen = React.memo(() => {
   useEffect(() => {
     if (conversationId) {
       const chatMessages = getMessages(conversationId);
-      // Ordenar mensajes en orden descendente para FlatList invertido
-      const sortedMessages = [...chatMessages].sort((a, b) => 
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-      setMessages(sortedMessages);
+      // Los mensajes del ChatProvider ya vienen en orden descendente
+      setMessages(chatMessages);
     }
   }, [activeChats, conversationId, getMessages]); // Escuchar cambios en activeChats
 
@@ -399,13 +424,24 @@ const GlobalChatScreen = React.memo(() => {
   useFocusEffect(
     useCallback(() => {
       if (conversationId) {
-        markAsRead(conversationId).then(() => {
-          console.log(`👁️ GlobalChat: Chat marcado como leído: ${conversationId}`);
-        }).catch(error => {
-          console.error('❌ GlobalChat: Error marcando chat como leído:', error);
-        });
+        // Marcar mensajes como leídos cuando el usuario entra en la conversación
+        // Solo si hay mensajes no leídos para evitar llamadas innecesarias
+        const hasUnreadMessages = messages.some(m => 
+          m.senderId !== currentUserId && !m.read
+        );
+        
+        if (hasUnreadMessages) {
+          console.log(`👁️ GlobalChat: Chat recibió foco con mensajes no leídos, marcando como leído: ${conversationId}`);
+          markAsRead(conversationId).then(() => {
+            console.log(`✅ GlobalChat: Chat marcado como leído exitosamente: ${conversationId}`);
+          }).catch(error => {
+            console.error('❌ GlobalChat: Error marcando chat como leído:', error);
+          });
+        } else {
+          console.log(`ℹ️ GlobalChat: Chat recibió foco pero no hay mensajes no leídos, omitiendo marcado: ${conversationId}`);
+        }
       }
-    }, [conversationId]) // Removida markAsRead de las dependencias
+    }, [conversationId, messages, currentUserId, markAsRead])
   );
 
   // Limpiar al salir del chat (solo al desmontar el componente)

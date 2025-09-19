@@ -640,46 +640,122 @@ export class Chat {
   }
 
   /**
-   * Marca mensajes como leídos (batch operation)
+   * Obtiene mensajes no leídos específicos para un usuario en una conversación
+   */
+  static async getUnreadMessagesForUser(conversationId, userId, messageIds = null) {
+    try {
+      const PK = pkForConversation(conversationId);
+      
+      let filterExpression = 'senderId <> :userId AND #read = :read';
+      const expressionAttributeValues = {
+        ':pk': PK,
+        ':msgPrefix': 'MSG#',
+        ':userId': String(userId),
+        ':read': false
+      };
+      
+      // Si se proporcionan messageIds específicos, filtrar por ellos
+      if (messageIds && Array.isArray(messageIds) && messageIds.length > 0) {
+        filterExpression += ' AND messageId IN (:messageIds)';
+        expressionAttributeValues[':messageIds'] = messageIds;
+      }
+      
+      const query = new QueryCommand({
+        TableName: TABLE_NAME,
+        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :msgPrefix)',
+        FilterExpression: filterExpression,
+        ExpressionAttributeValues: expressionAttributeValues,
+        ExpressionAttributeNames: {
+          '#read': 'read'
+        },
+        ProjectionExpression: 'messageId, senderId, createdAt, SK'
+      });
+
+      const result = await docClient.send(query);
+      return result.Items || [];
+    } catch (error) {
+      console.error('❌ Chat: Error obteniendo mensajes no leídos específicos:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Marca mensajes como leídos (batch operation optimizada)
    */
   static async markMessagesAsRead(conversationId, messageIds, userId) {
-    if (!messageIds || messageIds.length === 0) return;
+    if (!messageIds || messageIds.length === 0) {
+      console.log('⚠️ Chat: No hay messageIds para marcar como leídos');
+      return;
+    }
 
     const PK = pkForConversation(conversationId);
     
     try {
-      // Obtener mensajes recientes para encontrar los que necesitamos actualizar
-      const recentMessages = await this.listMessages(conversationId, { limit: 100 });
-      const messagesToUpdate = recentMessages.items.filter(msg => 
-        messageIds.includes(msg.messageId) && !msg.read
-      );
+      console.log(`🔄 Chat: Iniciando marcado de ${messageIds.length} mensajes como leídos en conversación ${conversationId} para usuario ${userId}`);
 
-      if (messagesToUpdate.length === 0) {
-        console.log('⚠️ Chat: No se encontraron mensajes no leídos para actualizar');
+      // Primero verificar qué mensajes realmente necesitan ser marcados como leídos
+      const unreadMessages = await this.getUnreadMessagesForUser(conversationId, userId, messageIds);
+      
+      if (unreadMessages.length === 0) {
+        console.log('ℹ️ Chat: Todos los mensajes solicitados ya están marcados como leídos');
         return;
       }
 
-      // Usar UpdateCommand individual para cada mensaje
-      const updatePromises = messagesToUpdate.map(message => {
+      console.log(`📝 Chat: ${unreadMessages.length} de ${messageIds.length} mensajes realmente necesitan ser marcados como leídos`);
+
+      // Usar UpdateCommand individual para cada mensaje que necesita actualización
+      const updatePromises = unreadMessages.map(message => {
         const updateCommand = new UpdateCommand({
           TableName: TABLE_NAME,
           Key: { 
             PK, 
-            SK: `MSG#${message.createdAt}#${message.messageId}` 
+            SK: message.SK 
           },
-          UpdateExpression: 'SET #read = :read',
-          ExpressionAttributeNames: { '#read': 'read' },
-          ExpressionAttributeValues: { ':read': true },
-          ReturnValues: 'NONE'
+          UpdateExpression: 'SET #read = :read, updatedAt = :updatedAt',
+          ExpressionAttributeNames: { 
+            '#read': 'read' 
+          },
+          ExpressionAttributeValues: { 
+            ':read': true,
+            ':updatedAt': new Date().toISOString(),
+            ':currentRead': false
+          },
+          ReturnValues: 'NONE',
+          // Añadir condición para evitar actualizaciones innecesarias
+          ConditionExpression: '#read = :currentRead'
         });
 
-        return docClient.send(updateCommand);
+        return docClient.send(updateCommand).catch(error => {
+          // Si falla por condición, el mensaje ya estaba leído
+          if (error.name === 'ConditionalCheckFailedException') {
+            console.log(`ℹ️ Chat: Mensaje ${message.messageId} ya estaba marcado como leído durante la actualización`);
+            return Promise.resolve();
+          }
+          throw error;
+        });
       });
 
       // Ejecutar todas las actualizaciones en paralelo
-      await Promise.all(updatePromises);
+      const results = await Promise.allSettled(updatePromises);
+      
+      // Contar actualizaciones exitosas
+      const successfulUpdates = results.filter(result => 
+        result.status === 'fulfilled'
+      ).length;
 
-      console.log(`✅ Chat: ${messagesToUpdate.length} mensajes marcados como leídos en conversación ${conversationId}`);
+      console.log(`✅ Chat: ${successfulUpdates} mensajes marcados como leídos exitosamente en conversación ${conversationId}`);
+      
+      // Log de errores si los hay
+      const failedUpdates = results.filter(result => 
+        result.status === 'rejected'
+      );
+      
+      if (failedUpdates.length > 0) {
+        console.error(`❌ Chat: ${failedUpdates.length} actualizaciones fallaron:`, 
+          failedUpdates.map(r => r.reason)
+        );
+      }
+
     } catch (error) {
       console.error('❌ Chat: Error marcando mensajes como leídos:', error);
       throw error;
