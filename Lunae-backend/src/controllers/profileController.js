@@ -5,11 +5,11 @@ import { Chat } from '../models/Chat.js';
 // Actualizar perfil del usuario
 export const updateProfile = async (req, res) => {
   try {
-    const { displayName, birthDate, gender, location, profileImage, profileCompleted } = req.body;
+    const { displayName, birthDate, gender, location, profileImage, profileCompleted, description } = req.body;
     const userId = req.user.id;
 
     console.log('🔄 Actualizando perfil del usuario:', userId);
-    console.log('📝 Datos a actualizar:', { displayName, birthDate, gender, location, profileImage, profileCompleted });
+    console.log('📝 Datos a actualizar:', { displayName, birthDate, gender, location, profileImage, profileCompleted, description });
 
     const updateData = {};
     
@@ -40,6 +40,7 @@ export const updateProfile = async (req, res) => {
     if (location !== undefined) updateData.location = location;
     if (profileImage !== undefined) updateData.profileImage = profileImage;
     if (profileCompleted !== undefined) updateData.profileCompleted = profileCompleted;
+    if (description !== undefined) updateData.description = description;
     
     // Marcar el perfil como completado si se proporcionan todos los datos requeridos
     if (displayName && birthDate && gender && location && profileImage && !profileCompleted) {

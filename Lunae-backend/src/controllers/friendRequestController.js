@@ -1,5 +1,6 @@
 import { FriendRequest } from "../models/FriendRequest.js";
 import { User } from "../models/Users.js";
+import { sendFriendRequestNotification, sendFriendRequestAcceptedNotification } from "../utils/socketUtils.js";
 
 /**
  * Enviar una solicitud de amistad
@@ -48,6 +49,20 @@ export const sendFriendRequest = async (req, res) => {
     });
 
     console.log('✅ Solicitud de amistad enviada exitosamente:', friendRequest.id);
+
+    // Obtener información del remitente para la notificación
+    const sender = await User.findById(senderId);
+    if (sender) {
+      const senderInfo = {
+        id: sender.id,
+        name: sender.displayName || sender.username,
+        profileImage: sender.profileImage,
+        friendRequestId: friendRequest.id
+      };
+
+      // Enviar notificación por WebSocket
+      await sendFriendRequestNotification(userId, senderInfo);
+    }
 
     res.status(201).json({
       success: true,
@@ -113,6 +128,19 @@ export const acceptFriendRequest = async (req, res) => {
     await friendRequest.updateStatus('accepted');
 
     console.log('✅ Solicitud de amistad aceptada:', friendRequestId);
+
+    // Obtener información del receptor para notificar al remitente
+    const receiver = await User.findById(userId);
+    if (receiver) {
+      const receiverInfo = {
+        id: receiver.id,
+        name: receiver.displayName || receiver.username,
+        profileImage: receiver.profileImage
+      };
+
+      // Enviar notificación por WebSocket al remitente
+      await sendFriendRequestAcceptedNotification(friendRequest.senderId, receiverInfo);
+    }
 
     res.json({
       success: true,

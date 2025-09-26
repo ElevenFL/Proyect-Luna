@@ -30,12 +30,12 @@ export default function StoryRing({
     );
   }
 
-  const ringWidth = 3;
-  const innerSize = size - (ringWidth * 2);
+  const ringWidth = 2.5;
+  const borderRadius = 16;
 
   return (
     <View style={[styles.container, { width: size, height: size }, style]}>
-      {/* Anillo de gradiente */}
+      {/* Anillo de gradiente como fondo */}
       <LinearGradient
         colors={
           isViewed 
@@ -49,40 +49,44 @@ export default function StoryRing({
           {
             width: size,
             height: size,
-            borderRadius: size / 2,
+            borderRadius: borderRadius,
+          }
+        ]}
+      />
+      
+      {/* Contenido interno posicionado absolutamente */}
+      <View
+        style={[
+          styles.innerContainer,
+          {
+            width: size - (ringWidth * 2),
+            height: size - (ringWidth * 2),
+            borderRadius: borderRadius - ringWidth,
+            position: 'absolute',
+            top: ringWidth,
+            left: ringWidth,
           }
         ]}
       >
-        {/* Contenido interno */}
-        <View
-          style={[
-            styles.innerContainer,
-            {
-              width: innerSize,
-              height: innerSize,
-              borderRadius: innerSize / 2,
-            }
-          ]}
-        >
-          {children}
-        </View>
-      </LinearGradient>
+        {children}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  container: { 
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative',
   },
   gradientRing: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 3, // Grosor del anillo
+    position: 'absolute',
+    top: 0,
+    left: 0,
   },
   innerContainer: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',

@@ -144,3 +144,4 @@ Todos los errores han sido corregidos y la funcionalidad de Stories está lista 
 
 **Próximo paso**: Probar la funcionalidad completa creando y visualizando stories desde la aplicación.
 
+

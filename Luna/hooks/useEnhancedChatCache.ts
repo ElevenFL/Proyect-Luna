@@ -98,13 +98,13 @@ export const useEnhancedChatCache = ({
       // Establecer mensajes inmediatamente para evitar parpadeos
       setMessages(cachedMessages);
       setIsLoaded(cachedMessages.length > 0);
-      setCacheVersion(conversationMetadata?.version || 0);
+      setCacheVersion(0); // La versión se maneja internamente en el servicio
       setSyncStatus('success');
       setMetadata(conversationMetadata);
       
       // Solo mostrar log si hay mensajes o si es la primera carga
       if (cachedMessages.length > 0) {
-        console.log(`📱 EnhancedHook: Cargados ${cachedMessages.length} mensajes desde caché mejorado (v${conversationMetadata?.version || 0})`);
+        console.log(`📱 EnhancedHook: Cargados ${cachedMessages.length} mensajes desde caché mejorado`);
       } else {
         console.log(`📱 EnhancedHook: No hay mensajes en caché para ${conversationId}`);
       }
@@ -146,9 +146,9 @@ export const useEnhancedChatCache = ({
         setIsLoaded(true);
         setSyncStatus('success');
         
-        // Actualizar versión del caché
+        // Actualizar metadata del caché
         const updatedMetadata = await enhancedCacheService.getConversationMetadata(conversationId);
-        setCacheVersion(updatedMetadata?.version || 0);
+        setCacheVersion(0); // La versión se maneja internamente en el servicio
         setMetadata(updatedMetadata);
         
         console.log(`🔄 EnhancedHook: Sincronizados ${serverMessages.length} mensajes totales, ${newMessages.length} nuevos`);
@@ -184,9 +184,9 @@ export const useEnhancedChatCache = ({
         const updatedMessages = await enhancedCacheService.getMessages(conversationId);
         setMessages(updatedMessages);
         
-        // Actualizar versión del caché
+        // Actualizar metadata del caché
         const updatedMetadata = await enhancedCacheService.getConversationMetadata(conversationId);
-        setCacheVersion(updatedMetadata?.version || 0);
+        setCacheVersion(0); // La versión se maneja internamente en el servicio
         setMetadata(updatedMetadata);
         setIsLoaded(true);
         setSyncStatus('success');

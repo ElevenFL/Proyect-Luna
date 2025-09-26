@@ -21,6 +21,7 @@ class SocketService {
   private messageListeners: Set<(message: ChatMessage) => void> = new Set();
   private conversationListeners: Set<(data: { conversationId: string; lastMessage: ChatMessage; updatedAt: string }) => void> = new Set();
   private connectionStateListeners: Set<(isConnected: boolean) => void> = new Set();
+  private notificationListeners: Set<(notification: any) => void> = new Set();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 8; // Aumentado a 8 intentos
   private reconnectDelay = 1000; // Reducido a 1000ms para reconexión más rápida
@@ -541,6 +542,20 @@ class SocketService {
         });
       });
 
+      // Escuchar notificaciones
+      this.socket.on('notification', (notification: any) => {
+        console.log('🔔 SocketService: Notificación recibida:', notification);
+        
+        // Notificar a los listeners de notificaciones
+        this.notificationListeners.forEach(listener => {
+          try {
+            listener(notification);
+          } catch (error) {
+            console.error('❌ SocketService: Error en listener de notificación:', error);
+          }
+        });
+      });
+
       // Escuchar pong para verificar conexión
       this.socket.on('pong', () => {
         this.lastPongTime = Date.now();
@@ -974,6 +989,20 @@ class SocketService {
    */
   removeConnectionStateListener(listener: (isConnected: boolean) => void) {
     this.connectionStateListeners.delete(listener);
+  }
+
+  /**
+   * Añade un listener para notificaciones
+   */
+  addNotificationListener(listener: (notification: any) => void) {
+    this.notificationListeners.add(listener);
+  }
+
+  /**
+   * Remueve un listener de notificaciones
+   */
+  removeNotificationListener(listener: (notification: any) => void) {
+    this.notificationListeners.delete(listener);
   }
 
   /**

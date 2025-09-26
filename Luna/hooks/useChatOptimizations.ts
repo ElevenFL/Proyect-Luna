@@ -8,7 +8,7 @@ export const useChatOptimizations = () => {
   // Referencias para scroll inteligente
   const isNearBottom = useRef(true);
   const lastScrollOffset = useRef(0);
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<FlatList>(null);
 
   // Función para scroll inteligente
@@ -119,7 +119,7 @@ export const useTypingIndicator = (
   currentUserId: string,
   socketService: any
 ) => {
-  const typingTimeout = useRef<NodeJS.Timeout | null>(null);
+  const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTyping = useRef(false);
 
   const startTyping = useCallback(() => {

@@ -140,3 +140,10 @@ Después de implementar estas mejoras:
 - ✅ **El debugger visual muestra el estado actual**
 
 **¡El story ring ahora debería aparecer correctamente!** 🎉
+
+
+
+
+
+
+

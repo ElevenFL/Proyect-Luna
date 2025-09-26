@@ -206,6 +206,24 @@ class EnhancedCacheService {
   }
 
   /**
+   * Obtiene la versión del caché de una conversación
+   */
+  async getConversationVersion(conversationId: string): Promise<number> {
+    try {
+      let conversation = this.memoryCache.get(conversationId);
+      
+      if (!conversation) {
+        conversation = await this.loadFromPersistence(conversationId);
+      }
+      
+      return conversation?.version || 0;
+    } catch (error) {
+      console.error('Error obteniendo versión de conversación:', error);
+      return 0;
+    }
+  }
+
+  /**
    * Actualiza metadata de una conversación
    */
   async updateConversationMetadata(conversationId: string, updates: Partial<ConversationMetadata>): Promise<void> {
@@ -474,13 +492,13 @@ class EnhancedCacheService {
     }
   }
 
-  private async loadFromPersistence(conversationId: string): Promise<CachedConversation | null> {
+  private async loadFromPersistence(conversationId: string): Promise<CachedConversation | undefined> {
     try {
       const persistedConversations = await this.loadPersistedConversations();
-      return persistedConversations.find(conv => conv.conversationId === conversationId) || null;
+      return persistedConversations.find(conv => conv.conversationId === conversationId);
     } catch (error) {
       console.error('Error cargando desde persistencia:', error);
-      return null;
+      return undefined;
     }
   }
 

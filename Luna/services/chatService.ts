@@ -53,6 +53,28 @@ class ChatService {
   }
 
   /**
+   * Obtiene los participantes de una conversación
+   */
+  async getConversationParticipants(conversationId: string): Promise<string[]> {
+    try {
+      // Intentar obtener desde el estado de la conversación primero
+      const conversationState = await conversationStateService.getConversationState(conversationId);
+      if (conversationState?.participants && conversationState.participants.length > 0) {
+        return conversationState.participants;
+      }
+
+      // Si no están en el estado, obtener desde el backend
+      // Nota: Esto requeriría un endpoint específico o modificar listMessages
+      // Por ahora, devolvemos un array vacío y se actualizará cuando sea necesario
+      console.log(`⚠️ No se pudieron obtener participantes para conversación ${conversationId}`);
+      return [];
+    } catch (error) {
+      console.error('Error obteniendo participantes de conversación:', error);
+      return [];
+    }
+  }
+
+  /**
    * Obtiene o crea una conversación con otro usuario
    */
   async getOrCreateConversation(otherUserId: string) {
@@ -130,9 +152,12 @@ class ChatService {
           
           // 7. Marcar como cargada e inicializada
           await cacheService.markConversationAsLoaded(conversationId);
+          
+          // Obtener participantes para inicializar correctamente el estado
+          const participants = await this.getConversationParticipants(conversationId);
           await conversationStateService.markConversationAsInitialized(
             conversationId, 
-            response.data?.participants || []
+            participants
           );
           
           return { items: serverMessages, ...response.data, fromCache: false };
@@ -146,7 +171,9 @@ class ChatService {
         // 9. Devolver mensajes del caché y marcar como cargada e inicializada
         await cacheService.markConversationAsLoaded(conversationId);
         if (!isInitialized) {
-          await conversationStateService.markConversationAsInitialized(conversationId, []);
+          // Obtener participantes para inicializar correctamente el estado
+          const participants = await this.getConversationParticipants(conversationId);
+          await conversationStateService.markConversationAsInitialized(conversationId, participants);
         }
         return { items: cachedMessages, fromCache: true };
       }

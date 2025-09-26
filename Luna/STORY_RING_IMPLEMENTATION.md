@@ -119,3 +119,10 @@ Ahora cuando un usuario sube una historia:
 5. **Es navegable** tocando el anillo de colores
 
 **¡Los story rings ahora funcionan correctamente!** 🎉
+
+
+
+
+
+
+

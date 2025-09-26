@@ -10,7 +10,7 @@ import {
   Dimensions,
   Animated,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useStories } from '@/contexts/StoriesContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -20,10 +20,13 @@ const { width, height } = Dimensions.get('window');
 export default function ViewStoriesScreen() {
   const { stories, markStoryAsViewed } = useStories();
   const { user } = useAuth();
+  const { from } = useLocalSearchParams<{ from?: string }>();
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
   const [currentUserIndex, setCurrentUserIndex] = useState(0);
   const [isNavigating, setIsNavigating] = useState(false);
+  const [isUnmounting, setIsUnmounting] = useState(false);
   const progressAnim = useRef(new Animated.Value(0)).current;
+  const animationRef = useRef<Animated.CompositeAnimation | null>(null);
 
   // Filtrar stories de amigos (excluyendo los del usuario actual)
   const friendsStories = stories.filter(story => story.userId !== user?.id);
@@ -40,14 +43,44 @@ export default function ViewStoriesScreen() {
   const usersWithStories = Object.keys(storiesByUser);
 
   const handleNavigation = useCallback(() => {
-    if (!isNavigating) {
+    if (!isNavigating && !isUnmounting) {
       setIsNavigating(true);
-      router.replace('/(tabs)');
+      setIsUnmounting(true);
+      
+      // Detener cualquier animación en progreso
+      if (animationRef.current) {
+        animationRef.current.stop();
+        animationRef.current = null;
+      }
+      progressAnim.stopAnimation();
+      
+      // Navegar según el parámetro 'from' o intentar back
+      try {
+        if (from === 'messages') {
+          // Si viene de mensajes, regresar a mensajes
+          router.replace('/(tabs)/messages');
+        } else if (from === 'home') {
+          // Si viene del home, regresar al home
+          router.replace('/(tabs)');
+        } else {
+          // Si no hay parámetro, intentar navegación hacia atrás
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            // Fallback al home
+            router.replace('/(tabs)');
+          }
+        }
+      } catch (error) {
+        // En caso de error, ir al home como fallback
+        console.log('Error en navegación, yendo al home:', error);
+        router.replace('/(tabs)');
+      }
     }
-  }, [isNavigating]);
+  }, [isNavigating, isUnmounting, progressAnim, from]);
 
   useEffect(() => {
-    if (isNavigating) return; // Evitar actualizaciones durante navegación
+    if (isNavigating || isUnmounting) return; // Evitar actualizaciones durante navegación o desmontaje
     
     if (usersWithStories.length > 0 && currentUserIndex < usersWithStories.length) {
       const currentUserStories = storiesByUser[usersWithStories[currentUserIndex]];
@@ -55,60 +88,77 @@ export default function ViewStoriesScreen() {
         const currentStory = currentUserStories[currentStoryIndex];
         
         // Marcar como visto
-        if (!currentStory.isViewed) {
+        if (!currentStory.isViewed && !isUnmounting) {
           markStoryAsViewed(currentStory.id);
         }
 
         // Animar progreso
         progressAnim.setValue(0);
-        Animated.timing(progressAnim, {
+        const animation = Animated.timing(progressAnim, {
           toValue: 1,
           duration: 5000, // 5 segundos por story
           useNativeDriver: false,
-        }).start(() => {
-          if (!isNavigating) {
+        });
+        
+        animationRef.current = animation;
+        
+        animation.start(() => {
+          if (!isNavigating && !isUnmounting) {
             nextStory();
           }
         });
       }
     }
-  }, [currentUserIndex, currentStoryIndex, isNavigating]);
+  }, [currentUserIndex, currentStoryIndex, isNavigating, isUnmounting]);
 
   // Cleanup effect para evitar warnings
   useEffect(() => {
     return () => {
+      setIsUnmounting(true);
       // Limpiar animaciones cuando el componente se desmonte
+      if (animationRef.current) {
+        animationRef.current.stop();
+        animationRef.current = null;
+      }
       progressAnim.stopAnimation();
     };
   }, [progressAnim]);
 
   const nextStory = useCallback(() => {
-    if (usersWithStories.length === 0 || isNavigating) return;
+    if (usersWithStories.length === 0 || isNavigating || isUnmounting) return;
 
     const currentUserStories = storiesByUser[usersWithStories[currentUserIndex]];
     
     if (currentStoryIndex < currentUserStories.length - 1) {
-      setCurrentStoryIndex(currentStoryIndex + 1);
+      if (!isUnmounting) {
+        setCurrentStoryIndex(currentStoryIndex + 1);
+      }
     } else if (currentUserIndex < usersWithStories.length - 1) {
-      setCurrentUserIndex(currentUserIndex + 1);
-      setCurrentStoryIndex(0);
+      if (!isUnmounting) {
+        setCurrentUserIndex(currentUserIndex + 1);
+        setCurrentStoryIndex(0);
+      }
     } else {
       // Fin de todos los stories
       handleNavigation();
     }
-  }, [currentStoryIndex, currentUserIndex, usersWithStories, storiesByUser, isNavigating, handleNavigation]);
+  }, [currentStoryIndex, currentUserIndex, usersWithStories, storiesByUser, isNavigating, isUnmounting, handleNavigation]);
 
   const previousStory = useCallback(() => {
-    if (isNavigating) return;
+    if (isNavigating || isUnmounting) return;
     
     if (currentStoryIndex > 0) {
-      setCurrentStoryIndex(currentStoryIndex - 1);
+      if (!isUnmounting) {
+        setCurrentStoryIndex(currentStoryIndex - 1);
+      }
     } else if (currentUserIndex > 0) {
-      setCurrentUserIndex(currentUserIndex - 1);
-      const previousUserStories = storiesByUser[usersWithStories[currentUserIndex - 1]];
-      setCurrentStoryIndex(previousUserStories.length - 1);
+      if (!isUnmounting) {
+        setCurrentUserIndex(currentUserIndex - 1);
+        const previousUserStories = storiesByUser[usersWithStories[currentUserIndex - 1]];
+        setCurrentStoryIndex(previousUserStories.length - 1);
+      }
     }
-  }, [currentStoryIndex, currentUserIndex, usersWithStories, storiesByUser, isNavigating]);
+  }, [currentStoryIndex, currentUserIndex, usersWithStories, storiesByUser, isNavigating, isUnmounting]);
 
   if (usersWithStories.length === 0) {
     return (

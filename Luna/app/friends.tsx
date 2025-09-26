@@ -165,36 +165,36 @@ export default function FriendsScreen() {
           <View style={styles.friendInfo}>
             <View style={styles.nameRow}>
               <Text style={styles.friendName}>{item.name}</Text>
+            </View>
+            
+            {/* Info Badges */}
+            <View style={styles.visualInfoContainer}>
+              {/* Género */}
+              {item.gender && (
+                <View style={[styles.infoBadge, { backgroundColor: getGenderColor(item.gender) }]}>
+                  <Text style={styles.infoBadgeText}>
+                    {getGenderIcon(item.gender)}
+                  </Text>
+                </View>
+              )}
               
-              {/* Información visual: Género, Edad, País al lado del nombre */}
-              <View style={styles.visualInfoContainer}>
-                {/* Género */}
-                {item.gender && (
-                  <View style={[styles.infoBadge, { backgroundColor: getGenderColor(item.gender) }]}>
-                    <Text style={styles.infoBadgeText}>
-                      {getGenderIcon(item.gender)}
-                    </Text>
-                  </View>
-                )}
-                
-                {/* Edad */}
-                {item.age && (
-                  <View style={styles.infoBadge}>
-                    <Text style={styles.infoBadgeText}>
-                      {item.age}
-                    </Text>
-                  </View>
-                )}
-                
-                {/* País */}
-                {(item.countryFlag || item.country) && (
-                  <View style={styles.countryBadge}>
-                    <Text style={styles.countryFlagText}>
-                      {item.countryFlag || '🌍'}
-                    </Text>
-                  </View>
-                )}
-              </View>
+              {/* Edad */}
+              {item.age && (
+                <View style={styles.infoBadge}>
+                  <Text style={styles.infoBadgeText}>
+                    {item.age}
+                  </Text>
+                </View>
+              )}
+              
+              {/* País */}
+              {(item.countryFlag || item.country) && (
+                <View style={styles.countryBadge}>
+                  <Text style={styles.countryFlagText}>
+                    {item.countryFlag || '🌍'}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
 
@@ -435,30 +435,26 @@ const styles = StyleSheet.create({
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 8,
   },
   friendName: {
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
-    marginRight: 8,
   },
   visualInfoContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    flex: 1,
-    justifyContent: 'flex-end',
+    marginBottom: 6,
   },
   infoBadge: {
     backgroundColor: '#2a2a2a',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 6,
-    marginBottom: 4,
-    minWidth: 24,
+    borderRadius: 8,
+    width: 28,
+    height: 20,
+    marginRight: 5,
+    marginBottom: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -470,20 +466,23 @@ const styles = StyleSheet.create({
   countryBadge: {
     backgroundColor: '#1a1a1a',
     borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginRight: 6,
-    marginBottom: 4,
+    width: 28,
+    height: 20,
+    marginRight: 5,
+    marginBottom: 2,
     borderWidth: 1,
     borderColor: '#333333',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   countryFlagText: {
     fontSize: 14,
   },
   statusContainer: {
-    marginTop: -20,
     alignItems: 'flex-end',
+    marginTop: 2,
     minWidth: 80,
+    alignSelf: 'flex-start',
   },
   statusTextContainer: {
     alignItems: 'flex-end',

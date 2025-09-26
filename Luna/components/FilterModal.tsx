@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useMemo, memo, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Dimensions, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
@@ -47,60 +47,67 @@ const DEFAULT_COUNTRIES = [
 ];
 
 
-export const FilterModal: React.FC<FilterModalProps> = ({
-  visible,
-  onClose,
-  onApplyFilters,
-  currentFilters,
-  availableCountries = DEFAULT_COUNTRIES
-}) => {
-  const [ageRange, setAgeRange] = useState<[number, number]>(
-    currentFilters?.ageRange || [18, 65]
-  );
-  const [selectedGender, setSelectedGender] = useState<'all' | 'male' | 'female'>(
-    currentFilters?.gender || 'all'
-  );
-  const [selectedCountries, setSelectedCountries] = useState<string[]>(
-    currentFilters?.countries || []
-  );
+// Nueva sección para el rango de edad
+const AgeSection = memo(({ ageRange, onAgeRangeChange, onAgeRangeCommit }: { ageRange: [number, number]; onAgeRangeChange: (values: number[]) => void; onAgeRangeCommit: (values: number[]) => void }) => {
+  const [displayAgeRange, setDisplayAgeRange] = useState(ageRange);
 
-  const handleAgeRangeChange = useCallback((values: number[]) => {
-    setAgeRange([values[0], values[1]]);
-  }, []);
-
-  const handleGenderSelect = useCallback((gender: 'all' | 'male' | 'female') => {
-    setSelectedGender(gender);
-  }, []);
-
-  const handleCountryToggle = useCallback((country: string) => {
-    setSelectedCountries(prev => {
-      if (prev.includes(country)) {
-        return prev.filter(c => c !== country);
-      } else {
-        return [...prev, country];
+  // useEffect para commitear cambios al finalizar el arrastre
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (JSON.stringify(displayAgeRange) !== JSON.stringify(ageRange)) {
+        onAgeRangeCommit([displayAgeRange[0], displayAgeRange[1]]);
       }
-    });
-  }, []);
+    }, 150); // Pequeño delay para detectar fin de arrastre
 
-  const handleSelectAllCountries = useCallback(() => {
-    setSelectedCountries(availableCountries);
-  }, [availableCountries]);
+    return () => clearTimeout(timer);
+  }, [displayAgeRange, ageRange, onAgeRangeCommit]);
 
-  const handleClearCountries = useCallback(() => {
-    setSelectedCountries([]);
-  }, []);
+  const handleValuesChange = useCallback((values: number[]) => {
+    setDisplayAgeRange([values[0], values[1]]);
+    if (onAgeRangeChange) onAgeRangeChange(values);
+  }, [onAgeRangeChange]);
 
-  const handleApplyFilters = useCallback(() => {
-    const filters: FilterOptions = {
-      ageRange,
-      gender: selectedGender,
-      countries: selectedCountries
-    };
-    onApplyFilters(filters);
-    onClose();
-  }, [ageRange, selectedGender, selectedCountries, onApplyFilters, onClose]);
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Rango de Edad</Text>
+      <View style={styles.ageContainer}>
+        <Text style={styles.ageLabel}>
+          {displayAgeRange[0]} - {displayAgeRange[1]} años
+        </Text>
+        
+        <View style={styles.rangeSliderContainer}>
+          <MultiSlider
+            values={[displayAgeRange[0], displayAgeRange[1]]}
+            sliderLength={280}
+            onValuesChange={handleValuesChange}
+            min={18}
+            max={99}
+            step={1}
+            allowOverlap={false}
+            snapped
+            selectedStyle={styles.selectedTrack}
+            unselectedStyle={styles.unselectedTrack}
+            containerStyle={styles.sliderContainer}
+            trackStyle={styles.track}
+            markerStyle={styles.marker}
+            pressedMarkerStyle={styles.pressedMarker}
+            markerContainerStyle={styles.markerContainer}
+          />
+        </View>
+        
+        <View style={styles.ageRangeLabels}>
+          <Text style={styles.ageRangeLabel}>18</Text>
+          <Text style={styles.ageRangeLabel}>99</Text>
+        </View>
+      </View>
+    </View>
+  );
+});
 
+AgeSection.displayName = 'AgeSection';
 
+// Nueva sección para género
+const GenderSection = memo(({ selectedGender, onGenderSelect }: { selectedGender: 'all' | 'male' | 'female'; onGenderSelect: (gender: 'all' | 'male' | 'female') => void }) => {
   const getGenderLabel = (gender: 'all' | 'male' | 'female') => {
     switch (gender) {
       case 'all': return 'Todos';
@@ -117,6 +124,217 @@ export const FilterModal: React.FC<FilterModalProps> = ({
     }
   };
 
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Género</Text>
+      <View style={styles.genderContainer}>
+        {(['all', 'male', 'female'] as const).map((gender) => (
+          <TouchableOpacity
+            key={gender}
+            style={[
+              styles.genderButton,
+              selectedGender === gender && styles.genderButtonSelected
+            ]}
+            onPress={() => onGenderSelect(gender)}
+          >
+            <Ionicons
+              name={getGenderIcon(gender)}
+              size={20}
+              color={selectedGender === gender ? '#000000' : '#FFFFFF'}
+            />
+            <Text style={[
+              styles.genderButtonText,
+              selectedGender === gender && styles.genderButtonTextSelected
+            ]}>
+              {getGenderLabel(gender)}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+});
+
+GenderSection.displayName = 'GenderSection';
+
+// Nueva sección para países
+const CountriesSection = memo(({ 
+  selectedCountries, 
+  availableCountries, 
+  countryData, // Nuevo prop para datos pre-computados
+  onCountryToggle, 
+  onSelectAll, 
+  onClear 
+}: { 
+  selectedCountries: string[]; 
+  availableCountries: string[]; 
+  countryData: { country: string; flag: string }[]; 
+  onCountryToggle: (country: string) => void; 
+  onSelectAll: () => void; 
+  onClear: () => void; 
+}) => {
+   
+  return (
+    <View style={styles.section}>
+      <View style={styles.countriesHeader}>
+        <Text style={styles.sectionTitle}>Países</Text>
+        <View style={styles.countriesActions}>
+          <TouchableOpacity onPress={onSelectAll} style={styles.actionButton}>
+            <Text style={styles.actionButtonText}>Todos</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onClear} style={styles.actionButton}>
+            <Text style={styles.actionButtonText}>Ninguno</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+      
+      <View style={styles.countriesContainer}>
+        <ScrollView 
+          style={styles.countriesList}
+          showsVerticalScrollIndicator={true}
+          nestedScrollEnabled={true}
+        >
+          {countryData.map(({ country, flag }) => (
+            <TouchableOpacity
+              key={country}
+              style={styles.countryItem}
+              onPress={() => onCountryToggle(country)}
+            >
+              <View style={styles.countryItemContent}>
+                <View style={[
+                  styles.checkbox,
+                  selectedCountries.includes(country) && styles.checkboxSelected
+                ]}>
+                  {selectedCountries.includes(country) && (
+                    <Ionicons name="checkmark" size={16} color="#000000" />
+                  )}
+                </View>
+                <Text style={styles.countryFlag}>{flag}</Text>
+                <Text style={styles.countryText}>{country}</Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    </View>
+  );
+});
+
+CountriesSection.displayName = 'CountriesSection';
+
+
+export const FilterModal: React.FC<FilterModalProps> = ({
+  visible,
+  onClose,
+  onApplyFilters,
+  currentFilters,
+  availableCountries = DEFAULT_COUNTRIES
+}) => {
+  const [ageRange, setAgeRange] = useState<[number, number]>(
+    currentFilters?.ageRange || [18, 99]
+  );
+  const [selectedGender, setSelectedGender] = useState<'all' | 'male' | 'female'>(
+    currentFilters?.gender || 'all'
+  );
+  const [selectedCountries, setSelectedCountries] = useState<string[]>(
+    currentFilters?.countries || []
+  );
+  const [countriesLoaded, setCountriesLoaded] = useState(false);
+
+  // Pre-computar banderas para todos los países una sola vez
+  const countryData = useMemo(() => 
+    availableCountries.map((country) => ({
+      country,
+      flag: getCountryFlag(country)
+    })), 
+    [availableCountries]
+  );
+
+  // Lazy load países después del mount inicial del modal
+  useEffect(() => {
+    if (visible) {
+      setCountriesLoaded(false);
+      const timer = setTimeout(() => {
+        setCountriesLoaded(true);
+      }, 100); // Delay pequeño para que el modal se abra primero
+
+      return () => clearTimeout(timer);
+    } else {
+      setCountriesLoaded(false);
+    }
+  }, [visible]);
+
+  // Función para guardar filtros automáticamente cuando cambien
+  const saveFiltersAutomatically = useCallback(() => {
+    const filters: FilterOptions = {
+      ageRange,
+      gender: selectedGender,
+      countries: selectedCountries
+    };
+    onApplyFilters(filters);
+  }, [ageRange, selectedGender, selectedCountries, onApplyFilters]);
+
+  const handleAgeRangeCommit = useCallback((values: number[]) => {
+    setAgeRange([values[0], values[1]]);
+    // Guardar automáticamente al finalizar el arrastre
+    setTimeout(() => {
+      saveFiltersAutomatically();
+    }, 100);
+  }, [saveFiltersAutomatically]);
+
+  const handleAgeRangeChange = useCallback((values: number[]) => {
+    // Esta función ahora solo se usa para preview si es necesario, pero no actualiza estado principal
+  }, []);
+
+  const handleGenderSelect = useCallback((gender: 'all' | 'male' | 'female') => {
+    setSelectedGender(gender);
+    // Guardar automáticamente cuando cambie el género
+    setTimeout(() => {
+      saveFiltersAutomatically();
+    }, 100);
+  }, [saveFiltersAutomatically]);
+
+  const handleCountryToggle = useCallback((country: string) => {
+    setSelectedCountries(prev => {
+      const newCountries = prev.includes(country) 
+        ? prev.filter(c => c !== country)
+        : [...prev, country];
+      
+      // Guardar automáticamente cuando cambien los países
+      setTimeout(() => {
+        saveFiltersAutomatically();
+      }, 100);
+      
+      return newCountries;
+    });
+  }, [saveFiltersAutomatically]);
+
+  const handleSelectAllCountries = useCallback(() => {
+    setSelectedCountries(availableCountries);
+    // Guardar automáticamente
+    setTimeout(() => {
+      saveFiltersAutomatically();
+    }, 100);
+  }, [availableCountries, saveFiltersAutomatically]);
+
+  const handleClearCountries = useCallback(() => {
+    setSelectedCountries([]);
+    // Guardar automáticamente
+    setTimeout(() => {
+      saveFiltersAutomatically();
+    }, 100);
+  }, [saveFiltersAutomatically]);
+
+  const handleApplyFilters = useCallback(() => {
+    const filters: FilterOptions = {
+      ageRange,
+      gender: selectedGender,
+      countries: selectedCountries
+    };
+    onApplyFilters(filters);
+    onClose();
+  }, [ageRange, selectedGender, selectedCountries, onApplyFilters, onClose]);
+
   if (!visible) {
     return null;
   }
@@ -124,7 +342,7 @@ export const FilterModal: React.FC<FilterModalProps> = ({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType="fade" // Cambiado a fade para apertura más rápida
       transparent={true}
       onRequestClose={onClose}
     >
@@ -136,116 +354,31 @@ export const FilterModal: React.FC<FilterModalProps> = ({
           style={styles.modalContainer}
           onPress={(e) => e.stopPropagation()}
         >
-
-
           <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
             {/* Rango de Edad */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Rango de Edad</Text>
-              <View style={styles.ageContainer}>
-                <Text style={styles.ageLabel}>
-                  {ageRange[0]} - {ageRange[1]} años
-                </Text>
-                
-                <View style={styles.rangeSliderContainer}>
-                  <MultiSlider
-                    values={[ageRange[0], ageRange[1]]}
-                    sliderLength={280}
-                    onValuesChange={handleAgeRangeChange}
-                    min={18}
-                    max={99}
-                    step={1}
-                    allowOverlap={false}
-                    snapped
-                    selectedStyle={styles.selectedTrack}
-                    unselectedStyle={styles.unselectedTrack}
-                    containerStyle={styles.sliderContainer}
-                    trackStyle={styles.track}
-                    markerStyle={styles.marker}
-                    pressedMarkerStyle={styles.pressedMarker}
-                    markerContainerStyle={styles.markerContainer}
-                  />
-                </View>
-                
-                <View style={styles.ageRangeLabels}>
-                  <Text style={styles.ageRangeLabel}>18</Text>
-                  <Text style={styles.ageRangeLabel}>99</Text>
-                </View>
-              </View>
-            </View>
-
+            <AgeSection 
+              ageRange={ageRange} 
+              onAgeRangeChange={handleAgeRangeChange}
+              onAgeRangeCommit={handleAgeRangeCommit}
+            />
+            
             {/* Género */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Género</Text>
-              <View style={styles.genderContainer}>
-                {(['all', 'male', 'female'] as const).map((gender) => (
-                  <TouchableOpacity
-                    key={gender}
-                    style={[
-                      styles.genderButton,
-                      selectedGender === gender && styles.genderButtonSelected
-                    ]}
-                    onPress={() => handleGenderSelect(gender)}
-                  >
-                    <Ionicons
-                      name={getGenderIcon(gender)}
-                      size={20}
-                      color={selectedGender === gender ? '#000000' : '#FFFFFF'}
-                    />
-                    <Text style={[
-                      styles.genderButtonText,
-                      selectedGender === gender && styles.genderButtonTextSelected
-                    ]}>
-                      {getGenderLabel(gender)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
+            <GenderSection 
+              selectedGender={selectedGender} 
+              onGenderSelect={handleGenderSelect} 
+            />
 
-            {/* Países */}
-            <View style={styles.section}>
-              <View style={styles.countriesHeader}>
-                <Text style={styles.sectionTitle}>Países</Text>
-                <View style={styles.countriesActions}>
-                  <TouchableOpacity onPress={handleSelectAllCountries} style={styles.actionButton}>
-                    <Text style={styles.actionButtonText}>Todos</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={handleClearCountries} style={styles.actionButton}>
-                    <Text style={styles.actionButtonText}>Ninguno</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-              
-              <View style={styles.countriesContainer}>
-                <ScrollView 
-                  style={styles.countriesList}
-                  showsVerticalScrollIndicator={true}
-                  nestedScrollEnabled={true}
-                >
-                  {availableCountries.map((country) => (
-                    <TouchableOpacity
-                      key={country}
-                      style={styles.countryItem}
-                      onPress={() => handleCountryToggle(country)}
-                    >
-                      <View style={styles.countryItemContent}>
-                        <View style={[
-                          styles.checkbox,
-                          selectedCountries.includes(country) && styles.checkboxSelected
-                        ]}>
-                          {selectedCountries.includes(country) && (
-                            <Ionicons name="checkmark" size={16} color="#000000" />
-                          )}
-                        </View>
-                        <Text style={styles.countryFlag}>{getCountryFlag(country)}</Text>
-                        <Text style={styles.countryText}>{country}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            </View>
+            {/* Países - lazy loaded */}
+            {countriesLoaded && (
+              <CountriesSection 
+                selectedCountries={selectedCountries}
+                availableCountries={availableCountries}
+                countryData={countryData}
+                onCountryToggle={handleCountryToggle}
+                onSelectAll={handleSelectAllCountries}
+                onClear={handleClearCountries}
+              />
+            )}
           </ScrollView>
 
           {/* Footer con botones */}
@@ -277,16 +410,17 @@ const styles = StyleSheet.create({
     maxHeight: screenHeight * 0.9,
     minHeight: screenHeight * 0.75,
     height: screenHeight * 0.75,
-    // Sombra para iOS
-    shadowColor: '#000000',
-    shadowOffset: {
-      width: 0,
-      height: -10,
-    },
-    shadowOpacity: 0.7,
-    shadowRadius: 20,
+    // Sombra para iOS (reemplazada por boxShadow)
+    // shadowColor: '#000000',
+    // shadowOffset: {
+    //   width: 0,
+    //   height: -10,
+    // },
+    // shadowOpacity: 0.7,
+    // shadowRadius: 20,
     // Elevación para Android
     elevation: 20,
+    boxShadow: '0px -10px 20px rgba(0, 0, 0, 0.7)',
   },
   header: {
     flexDirection: 'row',

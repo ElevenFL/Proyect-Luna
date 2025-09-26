@@ -71,13 +71,14 @@ export const useChatCache = ({
         setIsPreloading(true);
       }
       
-      // Obtener metadata de la conversación
+      // Obtener metadata y versión de la conversación
       const conversationMetadata = await enhancedCacheService.getConversationMetadata(conversationId);
+      const conversationVersion = await enhancedCacheService.getConversationVersion(conversationId);
       
       // Establecer mensajes inmediatamente para evitar parpadeos
       setMessages(cachedMessages);
       setIsLoaded(cachedMessages.length > 0);
-      setCacheVersion(conversationMetadata?.version || 0);
+      setCacheVersion(conversationVersion);
       setSyncStatus('success');
       
       // Establecer metadata si existe
@@ -92,7 +93,7 @@ export const useChatCache = ({
       
       // Solo mostrar log si hay mensajes o si es la primera carga
       if (cachedMessages.length > 0) {
-        console.log(`📱 Hook: Cargados ${cachedMessages.length} mensajes desde caché mejorado (v${conversationMetadata?.version || 0})`);
+        console.log(`📱 Hook: Cargados ${cachedMessages.length} mensajes desde caché mejorado (v${conversationVersion})`);
       } else {
         console.log(`📱 Hook: No hay mensajes en caché para ${conversationId}`);
       }
@@ -135,8 +136,8 @@ export const useChatCache = ({
         setSyncStatus('success');
         
         // Actualizar versión del caché
-        const metadata = await enhancedCacheService.getConversationMetadata(conversationId);
-        setCacheVersion(metadata?.version || 0);
+        const version = await enhancedCacheService.getConversationVersion(conversationId);
+        setCacheVersion(version);
         
         console.log(`🔄 Hook: Sincronizados ${serverMessages.length} mensajes totales, ${newMessages.length} nuevos`);
       } else {
@@ -184,8 +185,8 @@ export const useChatCache = ({
         setSyncStatus('success');
         
         // Actualizar versión del caché
-        const metadata = await enhancedCacheService.getConversationMetadata(conversationId);
-        setCacheVersion(metadata?.version || 0);
+        const version = await enhancedCacheService.getConversationVersion(conversationId);
+        setCacheVersion(version);
         
         console.log(`🔄 Hook: Sincronizados ${newMessages.length} mensajes nuevos únicamente`);
       } else {
@@ -221,8 +222,8 @@ export const useChatCache = ({
         setMessages(updatedMessages);
         
         // Actualizar versión del caché
-        const metadata = await enhancedCacheService.getConversationMetadata(conversationId);
-        setCacheVersion(metadata?.version || 0);
+        const version = await enhancedCacheService.getConversationVersion(conversationId);
+        setCacheVersion(version);
         setIsLoaded(true);
         setSyncStatus('success');
         
@@ -297,6 +298,10 @@ export const useChatCache = ({
           unreadCount: metadata.unreadCount
         });
       }
+      
+      // Actualizar versión del caché
+      const version = await enhancedCacheService.getConversationVersion(conversationId);
+      setCacheVersion(version);
       
       console.log(`📝 Hook: Metadata actualizada para conversación ${conversationId}`);
     } catch (error) {

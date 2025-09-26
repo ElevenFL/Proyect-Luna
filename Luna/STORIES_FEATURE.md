@@ -101,3 +101,4 @@ interface Story {
 3. **Navegar**: Desliza o toca los lados de la pantalla para cambiar stories
 4. **Salir**: Toca la "X" o espera a que terminen todos los stories
 
+

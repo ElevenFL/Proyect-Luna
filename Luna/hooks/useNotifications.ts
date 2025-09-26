@@ -4,12 +4,14 @@ import * as Notifications from 'expo-notifications';
 import { socketService } from '@/services/socketService';
 import { ChatMessage } from '@/services/optimizedChatService';
 
-// Configurar el comportamiento de las notificaciones
+// Configuración del comportamiento de las notificaciones
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -182,7 +184,7 @@ export function useNotifications(config: NotificationConfig = {
 
   // Configurar listener para respuesta a notificaciones
   useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+    const subscription = Notifications.addNotificationResponseReceivedListener((response: Notifications.NotificationResponse) => {
       const data = response.notification.request.content.data;
       
       if (data.type === 'new-message' && data.conversationId) {

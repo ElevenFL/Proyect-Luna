@@ -79,3 +79,10 @@ Para verificar que funciona correctamente:
 - ✅ **URLs públicas**: Acceso directo a las imágenes desde cualquier dispositivo
 - ✅ **Gestión de errores**: Mensajes claros para el usuario
 - ✅ **Logs detallados**: Facilita el debugging y monitoreo
+
+
+
+
+
+
+

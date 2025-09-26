@@ -24,6 +24,9 @@ const io = new Server(httpServer, {
   }
 });
 
+// Exportar app para uso en otros módulos
+export const getApp = () => app;
+
 const PORT = process.env.PORT || 3000;
 
 // Middlewares básicos
@@ -301,6 +304,10 @@ io.on('connection', (socket) => {
           // No interrumpir la conexión por este error
         }
         
+        // Unir al usuario a su sala personal para notificaciones
+        socket.join(`user_${userId}`);
+        console.log(`👤 Usuario ${userId} unido a sala personal user_${userId}`);
+
         // Emitir confirmación de autenticación con información adicional
         socket.emit('authenticated', { 
           userId, 
@@ -308,13 +315,17 @@ io.on('connection', (socket) => {
           timestamp: new Date().toISOString(),
           connectionCount: userSockets.size,
           serverVersion: '1.2.0',
-          features: ['heartbeat', 'rate_limiting', 'enhanced_error_handling']
+          features: ['heartbeat', 'rate_limiting', 'enhanced_error_handling', 'notifications']
         });
         
         console.log(`✅ Usuario ${userId} autenticado en socket ${socket.id}`);
         console.log(`📊 Total usuarios conectados: ${userSockets.size}`);
       } else {
         console.log(`ℹ️ Usuario ${userId} ya autenticado en socket ${socket.id}`);
+        // Unir al usuario a su sala personal para notificaciones (reconexión)
+        socket.join(`user_${userId}`);
+        console.log(`👤 Usuario ${userId} re-unido a sala personal user_${userId}`);
+
         // Re-emitir confirmación con timestamp actualizado
         socket.emit('authenticated', { 
           userId, 

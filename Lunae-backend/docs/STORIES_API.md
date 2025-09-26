@@ -298,3 +298,4 @@ curl -X GET "/api/stories/friends?friendIds=user1,user2,user3" \
   -H "Authorization: Bearer <token>"
 ```
 
+

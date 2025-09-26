@@ -64,17 +64,24 @@ class ConversationStateService {
         return; // No hay cambios, no actualizar
       }
       
-      const updatedState: ConversationState = {
-        conversationId,
+      // Crear el estado actualizado combinando valores por defecto, estado actual y actualizaciones
+      const defaultState = {
         isInitialized: false,
-        lastAccessTime: new Date().toISOString(),
         isActive: false,
         participants: [],
         version: 0,
+      };
+      
+      const newTimestamp = new Date().toISOString();
+      const newVersion = (currentState?.version || 0) + 1;
+      
+      const updatedState: ConversationState = {
+        ...defaultState,
         ...currentState,
         ...updates,
-        lastAccessTime: new Date().toISOString(),
-        version: (currentState?.version || 0) + 1
+        conversationId,
+        lastAccessTime: newTimestamp,
+        version: newVersion
       };
       
       states[conversationId] = updatedState;

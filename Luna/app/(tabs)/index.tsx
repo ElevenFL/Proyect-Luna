@@ -11,6 +11,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePrefetch, UserWithPrefetch } from '@/contexts/PrefetchContext';
 import { useStories } from '@/contexts/StoriesContext';
 import StoriesDebugger from '@/components/StoriesDebugger';
+import { useFilterPersistence } from '@/hooks/useFilterPersistence';
+import { useNotificationCount } from '@/hooks/useNotificationCount';
+import NotificationBadge from '@/components/NotificationBadge';
 
 // Datos de ejemplo de usuarios con información de conexión y ubicaciones reales
 const createMockUsers = (): User[] => {
@@ -117,16 +120,13 @@ export default function HomeScreen() {
   const { user: currentUser } = useAuth();
   const { setPrefetchedUsers } = usePrefetch();
   const { getStoriesByUser } = useStories();
+  const { filters: currentFilters, setFilters: setCurrentFilters, isLoading: filtersLoading } = useFilterPersistence();
+  const { unreadCount, refresh: refreshNotifications } = useNotificationCount();
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
-  const [currentFilters, setCurrentFilters] = useState<FilterOptions>({
-    ageRange: [18, 65],
-    gender: 'all',
-    countries: []
-  });
 
   // Función para filtrar al usuario actual de la lista
   const filterCurrentUser = (usersList: User[]) => {
@@ -211,9 +211,11 @@ export default function HomeScreen() {
         const sortedUsers = sortUsersByConnection(filteredUsers);
         setUsers(sortedUsers);
         
-        // Aplicar filtros actuales
-        const filteredByCriteria = applyFilters(sortedUsers, currentFilters);
-        setFilteredUsers(filteredByCriteria);
+        // Aplicar filtros actuales solo si no están cargando
+        if (!filtersLoading) {
+          const filteredByCriteria = applyFilters(sortedUsers, currentFilters);
+          setFilteredUsers(filteredByCriteria);
+        }
       } else {
         console.log('⚠️ No se pudieron cargar usuarios del API, usando datos mock');
         console.log('⚠️ Respuesta del API:', response);
@@ -222,9 +224,11 @@ export default function HomeScreen() {
         const sortedUsers = sortUsersByConnection(filteredMockUsers);
         setUsers(sortedUsers);
         
-        // Aplicar filtros actuales
-        const filteredByCriteria = applyFilters(sortedUsers, currentFilters);
-        setFilteredUsers(filteredByCriteria);
+        // Aplicar filtros actuales solo si no están cargando
+        if (!filtersLoading) {
+          const filteredByCriteria = applyFilters(sortedUsers, currentFilters);
+          setFilteredUsers(filteredByCriteria);
+        }
       }
     } catch (error) {
       console.error('❌ Error cargando usuarios del API:', error);
@@ -234,9 +238,11 @@ export default function HomeScreen() {
       const sortedUsers = sortUsersByConnection(filteredMockUsers);
       setUsers(sortedUsers);
       
-      // Aplicar filtros actuales
-      const filteredByCriteria = applyFilters(sortedUsers, currentFilters);
-      setFilteredUsers(filteredByCriteria);
+      // Aplicar filtros actuales solo si no están cargando
+      if (!filtersLoading) {
+        const filteredByCriteria = applyFilters(sortedUsers, currentFilters);
+        setFilteredUsers(filteredByCriteria);
+      }
     } finally {
       setLoading(false);
     }
@@ -245,13 +251,25 @@ export default function HomeScreen() {
   // Función para refrescar
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadUsers();
+    await Promise.all([
+      loadUsers(),
+      refreshNotifications()
+    ]);
     setRefreshing(false);
   };
 
   useEffect(() => {
     loadUsers();
   }, []);
+
+  // Efecto para aplicar filtros cuando cambien o se carguen
+  useEffect(() => {
+    if (!filtersLoading && users.length > 0) {
+      console.log('🔍 Aplicando filtros guardados:', currentFilters);
+      const filteredByCriteria = applyFilters(users, currentFilters);
+      setFilteredUsers(filteredByCriteria);
+    }
+  }, [currentFilters, filtersLoading, users]);
 
   const handleUserPress = (user: User) => {
     console.log('User pressed:', user.name);
@@ -292,7 +310,10 @@ export default function HomeScreen() {
     
     if (userStories.length > 0) {
       // Navegar a la pantalla de historias
-      router.push('/view-stories');
+      router.push({
+        pathname: '/view-stories',
+        params: { from: 'home' }
+      });
     } else {
       // Si no hay historias, navegar al perfil
       handleUserPress(user);
@@ -306,7 +327,7 @@ export default function HomeScreen() {
 
   const handleApplyFilters = (filters: FilterOptions) => {
     console.log('Aplicando filtros:', filters);
-    setCurrentFilters(filters);
+    setCurrentFilters(filters); // Esto automáticamente guarda los filtros en AsyncStorage
     
     // Aplicar filtros a los usuarios actuales
     const filtered = applyFilters(users, filters);
@@ -340,7 +361,10 @@ export default function HomeScreen() {
               <Ionicons name="options-outline" size={24} color="#FFFFFF" />
             </TouchableOpacity>
             <TouchableOpacity onPress={handleNotificationPress} style={styles.iconButton}>
-              <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
+              <View style={styles.notificationIconContainer}>
+                <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
+                <NotificationBadge count={unreadCount} size="small" />
+              </View>
             </TouchableOpacity>
           </View>
         </View>
@@ -425,6 +449,9 @@ const styles = StyleSheet.create({
   },
   iconButton: {
     padding: 4,
+  },
+  notificationIconContainer: {
+    position: 'relative',
   },
   list: {
     flex: 1,

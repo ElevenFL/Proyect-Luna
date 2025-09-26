@@ -204,7 +204,7 @@ export class ImageService {
           console.error(`Intento ${attempt} fallido:`, lastError);
           
           if (attempt < API_CONFIG.RETRY.MAX_ATTEMPTS) {
-            const delay = API_CONFIG.RETRY.DELAY * Math.pow(API_CONFIG.RETRY.BACKOFF_FACTOR, attempt - 1);
+            const delay = API_CONFIG.RETRY.INITIAL_DELAY * Math.pow(API_CONFIG.RETRY.BACKOFF_FACTOR, attempt - 1);
             await new Promise(resolve => setTimeout(resolve, delay));
           }
         }
@@ -261,7 +261,7 @@ export class ImageService {
           console.error(`Intento de subida ${attempt} fallido:`, lastError);
           
           if (attempt < API_CONFIG.RETRY.MAX_ATTEMPTS) {
-            const delay = API_CONFIG.RETRY.DELAY * Math.pow(API_CONFIG.RETRY.BACKOFF_FACTOR, attempt - 1);
+            const delay = API_CONFIG.RETRY.INITIAL_DELAY * Math.pow(API_CONFIG.RETRY.BACKOFF_FACTOR, attempt - 1);
             await new Promise(resolve => setTimeout(resolve, delay));
           } else {
             throw new Error(`No se pudo subir la imagen después de ${API_CONFIG.RETRY.MAX_ATTEMPTS} intentos: ${lastError.message}`);

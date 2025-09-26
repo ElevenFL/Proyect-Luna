@@ -187,7 +187,7 @@ export default function CreateStoryScreen() {
                 style={styles.addImageButton}
                 onPress={showImageOptions}
               >
-                <Ionicons name="camera" size={48} color="#F9C80E" />
+                <Ionicons name="camera" size={40} color="#F9C80E" />
                 <Text style={styles.addImageText}>Agregar imagen</Text>
                 <Text style={styles.addImageSubtext}>Toca para seleccionar o tomar una foto</Text>
               </TouchableOpacity>
@@ -212,22 +212,6 @@ export default function CreateStoryScreen() {
             </Text>
           </View>
 
-          {/* Opciones adicionales */}
-          <View style={styles.optionsSection}>
-            <Text style={styles.sectionTitle}>Opciones</Text>
-            
-            <TouchableOpacity style={styles.optionButton}>
-              <Ionicons name="location" size={20} color="#F9C80E" />
-              <Text style={styles.optionText}>Agregar ubicación</Text>
-              <Ionicons name="chevron-forward" size={16} color="#888888" />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.optionButton}>
-              <Ionicons name="people" size={20} color="#F9C80E" />
-              <Text style={styles.optionText}>Configurar privacidad</Text>
-              <Ionicons name="chevron-forward" size={16} color="#888888" />
-            </TouchableOpacity>
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -245,6 +229,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
+    paddingTop: 50,
     borderBottomWidth: 1,
     borderBottomColor: '#333333',
   },
@@ -272,6 +257,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+    paddingTop: 20,
   },
   imageSection: {
     marginBottom: 24,
@@ -282,7 +268,7 @@ const styles = StyleSheet.create({
   },
   storyImage: {
     width: '100%',
-    height: 400,
+    height: 500,
     borderRadius: 16,
     backgroundColor: '#2a2a2a',
   },
@@ -294,7 +280,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   addImageButton: {
-    height: 200,
+    height: 350,
     borderWidth: 2,
     borderColor: '#F9C80E',
     borderStyle: 'dashed',
@@ -339,23 +325,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'right',
     marginTop: 8,
-  },
-  optionsSection: {
-    marginBottom: 24,
-  },
-  optionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    backgroundColor: '#2a2a2a',
-    borderRadius: 12,
-    marginBottom: 8,
-  },
-  optionText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    marginLeft: 12,
-    flex: 1,
   },
 });

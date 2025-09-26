@@ -150,34 +150,36 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress, onStoryPress 
         <View style={styles.userInfo}>
           <View style={styles.nameRow}>
             <Text style={styles.userName}>{user.name}</Text>
-            <View style={styles.visualInfoContainer}>
-              {/* Género */}
-              {user.gender && (
-                <View style={[styles.infoBadge, { backgroundColor: getGenderColor() }]}>
-                  <Text style={styles.infoBadgeText}>
-                    {getGenderIcon()}
-                  </Text>
-                </View>
-              )}
-              
-              {/* Edad */}
-              {user.age && (
-                <View style={styles.infoBadge}>
-                  <Text style={styles.infoBadgeText}>
-                    {user.age}
-                  </Text>
-                </View>
-              )}
-              
-              {/* País */}
-              {(user.countryFlag || user.country) && (
-                <View style={styles.countryBadge}>
-                  <Text style={styles.countryFlagText}>
-                    {user.countryFlag || '🌍'}
-                  </Text>
-                </View>
-              )}
-            </View>
+          </View>
+          
+          {/* Info Badges */}
+          <View style={styles.visualInfoContainer}>
+            {/* Género */}
+            {user.gender && (
+              <View style={[styles.infoBadge, { backgroundColor: getGenderColor() }]}>
+                <Text style={styles.infoBadgeText}>
+                  {getGenderIcon()}
+                </Text>
+              </View>
+            )}
+            
+            {/* Edad */}
+            {user.age && (
+              <View style={styles.infoBadge}>
+                <Text style={styles.infoBadgeText}>
+                  {user.age}
+                </Text>
+              </View>
+            )}
+            
+            {/* País */}
+            {(user.countryFlag || user.country) && (
+              <View style={styles.countryBadge}>
+                <Text style={styles.countryFlagText}>
+                  {user.countryFlag || '🌍'}
+                </Text>
+              </View>
+            )}
           </View>
           
           <Text style={styles.description} numberOfLines={2}>
@@ -212,13 +214,13 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   profileImage: {
-    width: 56,
-    height: 56,
+    width: 60,
+    height: 60,
     borderRadius: 16,
   },
   profilePlaceholder: {
-    width: 56,
-    height: 56,
+    width: 60,
+    height: 60,
     borderRadius: 16,
     backgroundColor: '#F9C80E',
     justifyContent: 'center',
@@ -227,17 +229,18 @@ const styles = StyleSheet.create({
   initialsText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000000',
+    color: '#FFFFFF',
   },
   statusIndicator: {
     position: 'absolute',
-    bottom: 38,
-    right: -2,
+    bottom: 2,
+    right: 2,
     width: 12,
     height: 12,
     borderRadius: 6,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: '#000000',
+    zIndex: 10,
   },
   userInfo: {
     flex: 1,
@@ -246,30 +249,26 @@ const styles = StyleSheet.create({
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: 4,
   },
   userName: {
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
-    marginRight: 8,
   },
   visualInfoContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    flex: 1,
-    justifyContent: 'flex-end',
+    marginBottom: 6,
   },
   infoBadge: {
     backgroundColor: '#2a2a2a',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 6,
-    marginBottom: 4,
-    minWidth: 24,
+    borderRadius: 8,
+    width: 28,
+    height: 20,
+    marginRight: 5,
+    marginBottom: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -281,12 +280,14 @@ const styles = StyleSheet.create({
   countryBadge: {
     backgroundColor: '#1a1a1a',
     borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginRight: 6,
-    marginBottom: 4,
+    width: 28,
+    height: 20,
+    marginRight: 5,
+    marginBottom: 2,
     borderWidth: 1,
     borderColor: '#333333',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   countryFlagText: {
     fontSize: 14,
@@ -298,8 +299,9 @@ const styles = StyleSheet.create({
   },
   statusContainer: {
     alignItems: 'flex-end',
-    marginTop: -20,
+    marginTop: 2,
     minWidth: 80,
+    alignSelf: 'flex-start',
   },
   statusTextContainer: {
     alignItems: 'flex-end',

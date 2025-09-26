@@ -19,6 +19,7 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
   const [showTimeoutMessage, setShowTimeoutMessage] = useState(false);
   const [redirectAttempts, setRedirectAttempts] = useState(0);
   const [isRedirecting, setIsRedirecting] = useState(false);
+  const [isUnmounting, setIsUnmounting] = useState(false);
   const config = getAppConfig();
   const currentRoute = usePathname();
   const lastEvaluatedRoute = useRef<string | null>(null);
@@ -43,7 +44,7 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
 
   // Efecto unificado para manejar todas las redirecciones
   useEffect(() => {
-    if (isLoading || isRedirecting) return;
+    if (isLoading || isRedirecting || isUnmounting) return;
 
     // Solo evaluar si realmente ha cambiado algo importante
     const hasRouteChanged = lastEvaluatedRoute.current !== currentRoute;
@@ -89,13 +90,18 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
     lastUserState.current = userState;
 
     const timer = setTimeout(() => {
+      // Verificar si el componente se está desmontando antes de hacer cualquier actualización
+      if (isUnmounting) return;
+      
       // Caso 1: Requiere autenticación pero no hay usuario
       if (requireAuth && !userState.hasUser) {
         if (__DEV__) {
           console.log('AuthGuard: Usuario no autenticado, redirigiendo a:', redirectTo);
         }
-        setIsRedirecting(true);
-        router.replace(redirectTo);
+        if (!isUnmounting) {
+          setIsRedirecting(true);
+          router.replace(redirectTo);
+        }
         return;
       }
 
@@ -104,11 +110,13 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
         if (__DEV__) {
           console.log('AuthGuard: Usuario autenticado en página pública, redirigiendo...');
         }
-        setIsRedirecting(true);
-        if (userState.profileCompleted) {
-          router.replace('/(tabs)');
-        } else {
-          router.replace('/onboarding/welcome');
+        if (!isUnmounting) {
+          setIsRedirecting(true);
+          if (userState.profileCompleted) {
+            router.replace('/(tabs)');
+          } else {
+            router.replace('/onboarding/welcome');
+          }
         }
         return;
       }
@@ -121,15 +129,19 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
 
         if (!userState.profileCompleted && isInTabs) {
           console.log('AuthGuard: Usuario sin perfil completo, redirigiendo al onboarding');
-          setIsRedirecting(true);
-          router.replace('/onboarding/welcome');
+          if (!isUnmounting) {
+            setIsRedirecting(true);
+            router.replace('/onboarding/welcome');
+          }
           return;
         }
 
         if (userState.profileCompleted && isInOnboarding) {
           console.log('AuthGuard: Usuario con perfil completo, redirigiendo a las tabs');
-          setIsRedirecting(true);
-          router.replace('/(tabs)');
+          if (!isUnmounting) {
+            setIsRedirecting(true);
+            router.replace('/(tabs)');
+          }
           return;
         }
 
@@ -140,27 +152,33 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
 
         if (isInAuth) {
           console.log('AuthGuard: Usuario autenticado en páginas de auth, redirigiendo...');
-          setIsRedirecting(true);
-          if (userState.profileCompleted) {
-            router.replace('/(tabs)');
-          } else {
-            router.replace('/onboarding/welcome');
+          if (!isUnmounting) {
+            setIsRedirecting(true);
+            if (userState.profileCompleted) {
+              router.replace('/(tabs)');
+            } else {
+              router.replace('/onboarding/welcome');
+            }
           }
           return;
         }
       }
 
       // Si llegamos aquí, resetear el estado de redirección
-      setIsRedirecting(false);
+      if (!isUnmounting) {
+        setIsRedirecting(false);
+      }
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [userState, isLoading, requireAuth, redirectTo, currentRoute]);
+  }, [userState, isLoading, requireAuth, redirectTo, currentRoute, isUnmounting]);
 
   // Efecto para manejar reintentos de redirección fallidos
   useEffect(() => {
-    if (isRedirecting && !isLoading) {
+    if (isRedirecting && !isLoading && !isUnmounting) {
       const failsafeTimer = setTimeout(() => {
+        if (isUnmounting) return;
+        
         if (redirectAttempts < config.TIMEOUTS.REDIRECT_ATTEMPTS) {
           console.log('AuthGuard: Reintentando redirección fallida...');
           setRedirectAttempts(prev => prev + 1);
@@ -174,19 +192,26 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
 
       return () => clearTimeout(failsafeTimer);
     }
-  }, [isRedirecting, isLoading, redirectAttempts, config]);
+  }, [isRedirecting, isLoading, redirectAttempts, config, isUnmounting]);
 
   // Timeout de seguridad para evitar pantallas en negro indefinidas
   useEffect(() => {
     const safetyTimer = setTimeout(() => {
-      if (isLoading) {
+      if (isLoading && !isUnmounting) {
         console.log('AuthGuard: Timeout de seguridad alcanzado, forzando estado de carga');
         setShowTimeoutMessage(true);
       }
     }, config.TIMEOUTS.SAFETY_TIMEOUT * 1.5); // Aumentar el timeout de seguridad en un 50%
 
     return () => clearTimeout(safetyTimer);
-  }, [isLoading, config.TIMEOUTS.SAFETY_TIMEOUT]);
+  }, [isLoading, config.TIMEOUTS.SAFETY_TIMEOUT, isUnmounting]);
+
+  // Efecto para manejar el desmontaje del componente
+  useEffect(() => {
+    return () => {
+      setIsUnmounting(true);
+    };
+  }, []);
 
   // Mostrar loading mientras se verifica la autenticación
   if (isLoading && !showTimeoutMessage) {

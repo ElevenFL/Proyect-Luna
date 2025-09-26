@@ -1,4 +1,4 @@
-import { useState, useCallback, useContext } from 'react';
+import { useState, useCallback, useContext, useEffect } from 'react';
 import { Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageService } from '../services/imageService';
@@ -15,6 +15,7 @@ export const useProfileImage = (options: UseProfileImageOptions = {}) => {
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUnmounting, setIsUnmounting] = useState(false);
   const { token } = useAuth();
 
   const {
@@ -106,18 +107,22 @@ export const useProfileImage = (options: UseProfileImageOptions = {}) => {
       // Establecer el token en el ImageService
       ImageService.setAuthToken(token);
 
-      setUploading(true);
-      setUploadProgress(0);
+      if (!isUnmounting) {
+        setUploading(true);
+        setUploadProgress(0);
+      }
 
       // Simular progreso de subida
       const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return 90;
-          }
-          return prev + 10;
-        });
+        if (!isUnmounting) {
+          setUploadProgress(prev => {
+            if (prev >= 90) {
+              clearInterval(progressInterval);
+              return 90;
+            }
+            return prev + 10;
+          });
+        }
       }, 200);
 
       // Subir imagen usando presigned URL
@@ -133,7 +138,9 @@ export const useProfileImage = (options: UseProfileImageOptions = {}) => {
       );
 
       clearInterval(progressInterval);
-      setUploadProgress(100);
+      if (!isUnmounting) {
+        setUploadProgress(100);
+      }
       
       return downloadURL;
     } catch (error) {
@@ -154,8 +161,10 @@ export const useProfileImage = (options: UseProfileImageOptions = {}) => {
       
       throw error;
     } finally {
-      setUploading(false);
-      setUploadProgress(0);
+      if (!isUnmounting) {
+        setUploading(false);
+        setUploadProgress(0);
+      }
     }
   }, [maxWidth, maxHeight, quality, format, token]);
 
@@ -166,11 +175,11 @@ export const useProfileImage = (options: UseProfileImageOptions = {}) => {
       [
         { text: 'Tomar foto', onPress: async () => {
           const uri = await takePhoto();
-          if (uri) setProfileImage(uri);
+          if (uri && !isUnmounting) setProfileImage(uri);
         }},
         { text: 'Galería', onPress: async () => {
           const uri = await pickImageFromLibrary();
-          if (uri) setProfileImage(uri);
+          if (uri && !isUnmounting) setProfileImage(uri);
         }},
         { text: 'Cancelar', style: 'cancel' }
       ]
@@ -178,7 +187,16 @@ export const useProfileImage = (options: UseProfileImageOptions = {}) => {
   }, [takePhoto, pickImageFromLibrary]);
 
   const clearImage = useCallback(() => {
-    setProfileImage(null);
+    if (!isUnmounting) {
+      setProfileImage(null);
+    }
+  }, [isUnmounting]);
+
+  // Efecto para manejar el desmontaje del hook
+  useEffect(() => {
+    return () => {
+      setIsUnmounting(true);
+    };
   }, []);
 
   return {

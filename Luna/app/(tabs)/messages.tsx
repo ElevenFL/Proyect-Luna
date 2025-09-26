@@ -325,36 +325,36 @@ export default function GlobalMessagesScreen() {
               <View style={styles.userInfo}>
                 <View style={styles.nameRow}>
                   <Text style={styles.userName}>{item.otherUser.name}</Text>
+                </View>
+                
+                {/* Info Badges */}
+                <View style={styles.visualInfoContainer}>
+                  {/* Género */}
+                  {item.otherUser.gender && (
+                    <View style={[styles.infoBadge, { backgroundColor: getGenderColor(item.otherUser.gender) }]}>
+                      <Text style={styles.infoBadgeText}>
+                        {getGenderIcon(item.otherUser.gender)}
+                      </Text>
+                    </View>
+                  )}
                   
-                  {/* Información visual: Género, Edad, País al lado del nombre */}
-                  <View style={styles.visualInfoContainer}>
-                    {/* Género */}
-                    {item.otherUser.gender && (
-                      <View style={[styles.infoBadge, { backgroundColor: getGenderColor(item.otherUser.gender) }]}>
-                        <Text style={styles.infoBadgeText}>
-                          {getGenderIcon(item.otherUser.gender)}
-                        </Text>
-                      </View>
-                    )}
-                    
-                    {/* Edad */}
-                    {item.otherUser.age && (
-                      <View style={styles.infoBadge}>
-                        <Text style={styles.infoBadgeText}>
-                          {item.otherUser.age}
-                        </Text>
-                      </View>
-                    )}
-                    
-                    {/* País */}
-                    {(item.otherUser.countryFlag || item.otherUser.country) && (
-                      <View style={styles.countryBadge}>
-                        <Text style={styles.countryFlagText}>
-                          {item.otherUser.countryFlag || '🌍'}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
+                  {/* Edad */}
+                  {item.otherUser.age && (
+                    <View style={styles.infoBadge}>
+                      <Text style={styles.infoBadgeText}>
+                        {item.otherUser.age}
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {/* País */}
+                  {(item.otherUser.countryFlag || item.otherUser.country) && (
+                    <View style={styles.countryBadge}>
+                      <Text style={styles.countryFlagText}>
+                        {item.otherUser.countryFlag || '🌍'}
+                      </Text>
+                    </View>
+                  )}
                 </View>
                 
                 <View style={styles.messageRow}>
@@ -440,7 +440,10 @@ export default function GlobalMessagesScreen() {
                   if (friendStories.length > 0) {
                     // Si tiene stories, navegar a verlos primero
                     console.log(`📖 Ver stories de ${friend.name}`);
-                    router.push('/view-stories');
+                    router.push({
+                      pathname: '/view-stories',
+                      params: { from: 'messages' }
+                    });
                   } else if (activeChat) {
                     // Si hay chat activo, navegar a él
                     handleConversationPress({
@@ -604,8 +607,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   addButton: {
-    width: 56,
-    height: 56,
+    width: 60,
+    height: 60,
     borderRadius: 16,
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
@@ -613,8 +616,8 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   avatarCircle: {
-    width: 56,
-    height: 56,
+    width: 60,
+    height: 60,
     borderRadius: 16,
     backgroundColor: '#F9C80E',
     justifyContent: 'center',
@@ -628,8 +631,8 @@ const styles = StyleSheet.create({
     color: '#000000',
   },
   avatarImage: {
-    width: 56,
-    height: 56,
+    width: 60,
+    height: 60,
     borderRadius: 16,
   },
   avatarBadge: {
@@ -660,8 +663,8 @@ const styles = StyleSheet.create({
     borderColor: '#000000',
   },
   friendsButton: {
-    width: 56,
-    height: 56,
+    width: 60,
+    height: 60,
     borderRadius: 16,
     backgroundColor: '#1a1a1a',
     borderWidth: 2,
@@ -753,16 +756,16 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   profilePlaceholder: {
-    width: 56,
-    height: 56,
+    width: 60,
+    height: 60,
     borderRadius: 16,
     backgroundColor: '#F9C80E',
     justifyContent: 'center',
     alignItems: 'center',
   },
   profileImage: {
-    width: 56,
-    height: 56,
+    width: 60,
+    height: 60,
     borderRadius: 16,
   },
   initialsText: {
@@ -787,30 +790,26 @@ const styles = StyleSheet.create({
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 8,
   },
   userName: {
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
-    marginRight: 8,
   },
   visualInfoContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    flex: 1,
-    justifyContent: 'flex-end',
+    marginBottom: 6,
   },
   infoBadge: {
     backgroundColor: '#2a2a2a',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 6,
-    marginBottom: 4,
-    minWidth: 24,
+    borderRadius: 8,
+    width: 28,
+    height: 20,
+    marginRight: 5,
+    marginBottom: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -822,12 +821,14 @@ const styles = StyleSheet.create({
   countryBadge: {
     backgroundColor: '#1a1a1a',
     borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginRight: 6,
-    marginBottom: 4,
+    width: 28,
+    height: 20,
+    marginRight: 5,
+    marginBottom: 2,
     borderWidth: 1,
     borderColor: '#333333',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   countryFlagText: {
     fontSize: 14,
@@ -849,9 +850,10 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   statusContainer: {
-    marginTop: -20,
     alignItems: 'flex-end',
+    marginTop: 2,
     minWidth: 80,
+    alignSelf: 'flex-start',
   },
   statusTextContainer: {
     alignItems: 'flex-end',
