@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, StatusBar, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Image, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, StatusBar, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Image, ActivityIndicator, Alert, Keyboard } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, withTiming, withDelay, interpolate } from 'react-native-reanimated';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
@@ -48,6 +48,8 @@ const GlobalChatScreen = React.memo(() => {
   const [messagesLoaded, setMessagesLoaded] = useState(false); // Nuevo estado para rastrear si los mensajes se cargaron
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [shouldAnimateMessages, setShouldAnimateMessages] = useState(false); // Estado para controlar animación de entrada
+  const [keyboardHeight, setKeyboardHeight] = useState(0); // Estado para la altura del teclado
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false); // Estado para saber si el teclado está visible
   const [otherUserInfo, setOtherUserInfo] = useState<{
     name: string;
     profileImage?: string;
@@ -444,6 +446,32 @@ const GlobalChatScreen = React.memo(() => {
     }, [conversationId, messages, currentUserId, markAsRead])
   );
 
+  // Listeners del teclado para ajustar la pantalla
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+      setIsKeyboardVisible(true);
+      console.log('⌨️ Teclado mostrado, altura:', e.endCoordinates.height);
+      
+      // Hacer scroll al final cuando aparece el teclado
+      setTimeout(() => scrollToEnd(true), 200);
+    });
+
+    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+      setIsKeyboardVisible(false);
+      console.log('⌨️ Teclado ocultado');
+      
+      // Ajustar scroll cuando se oculta el teclado
+      setTimeout(() => scrollToEnd(false), 100);
+    });
+
+    return () => {
+      keyboardDidShowListener?.remove();
+      keyboardDidHideListener?.remove();
+    };
+  }, [scrollToEnd]);
+
   // Limpiar al salir del chat (solo al desmontar el componente)
   useEffect(() => {
     return () => {
@@ -808,9 +836,14 @@ const GlobalChatScreen = React.memo(() => {
   return (
     <GestureHandlerRootView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
-
-      {/* Header */}
-      <View style={styles.header}>
+      
+      <KeyboardAvoidingView 
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        {/* Header */}
+        <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="chevron-back" size={24} color="#F9C80E" />
         </TouchableOpacity>
@@ -877,60 +910,62 @@ const GlobalChatScreen = React.memo(() => {
         <View style={{ width: 36 }} />
       </View>
 
-      {/* Lista de mensajes optimizada */}
-      <FlatList
-        ref={listRef}
-        data={messages}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        inverted={true} // Mensajes más recientes abajo
-        removeClippedSubviews={true}
-        maxToRenderPerBatch={10}
-        windowSize={8}
-        initialNumToRender={15}
-        updateCellsBatchingPeriod={100}
-        onScroll={handleScroll}
-        scrollEventThrottle={100}
-        maintainVisibleContentPosition={{
-          minIndexForVisible: 0,
-          autoscrollToTopThreshold: 100
-        }}
-        // Paginación: cargar mensajes antiguos al hacer scroll hacia arriba
-        onEndReached={loadOlderMessages}
-        onEndReachedThreshold={0.1}
-        ListFooterComponent={
-          isLoadingOlder ? (
-            <View style={styles.loadingOlderContainer}>
-              <ActivityIndicator size="small" color="#F9C80E" />
-              <Text style={styles.loadingOlderText}>Cargando mensajes anteriores...</Text>
-            </View>
-          ) : !hasMoreMessages && messages.length > 0 ? (
-            <View style={styles.noMoreMessagesContainer}>
-              <Text style={styles.noMoreMessagesText}>• • •</Text>
-              <Text style={styles.noMoreMessagesSubtext}>Inicio de la conversación</Text>
-            </View>
-          ) : null
-        }
-        ListEmptyComponent={
-          isLoading && !messagesLoaded ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#F9C80E" />
-              <Text style={styles.loadingText}>Cargando mensajes...</Text>
-            </View>
-          ) : messagesLoaded && messages.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="chatbubbles-outline" size={48} color="#666" />
-              <Text style={styles.emptyText}>No hay mensajes aún</Text>
-              <Text style={styles.emptySubtext}>Envía el primer mensaje</Text>
-            </View>
-          ) : null
-        }
-      />
+        {/* Lista de mensajes optimizada */}
+        <FlatList
+          ref={listRef}
+          data={messages}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          contentContainerStyle={[
+            styles.listContent,
+            isKeyboardVisible && { paddingBottom: 20 }
+          ]}
+          showsVerticalScrollIndicator={false}
+          inverted={true} // Mensajes más recientes abajo
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          windowSize={8}
+          initialNumToRender={15}
+          updateCellsBatchingPeriod={100}
+          onScroll={handleScroll}
+          scrollEventThrottle={100}
+          maintainVisibleContentPosition={{
+            minIndexForVisible: 0,
+            autoscrollToTopThreshold: 100
+          }}
+          // Paginación: cargar mensajes antiguos al hacer scroll hacia arriba
+          onEndReached={loadOlderMessages}
+          onEndReachedThreshold={0.1}
+          ListFooterComponent={
+            isLoadingOlder ? (
+              <View style={styles.loadingOlderContainer}>
+                <ActivityIndicator size="small" color="#F9C80E" />
+                <Text style={styles.loadingOlderText}>Cargando mensajes anteriores...</Text>
+              </View>
+            ) : !hasMoreMessages && messages.length > 0 ? (
+              <View style={styles.noMoreMessagesContainer}>
+                <Text style={styles.noMoreMessagesText}>• • •</Text>
+                <Text style={styles.noMoreMessagesSubtext}>Inicio de la conversación</Text>
+              </View>
+            ) : null
+          }
+          ListEmptyComponent={
+            isLoading && !messagesLoaded ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#F9C80E" />
+                <Text style={styles.loadingText}>Cargando mensajes...</Text>
+              </View>
+            ) : messagesLoaded && messages.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="chatbubbles-outline" size={48} color="#666" />
+                <Text style={styles.emptyText}>No hay mensajes aún</Text>
+                <Text style={styles.emptySubtext}>Envía el primer mensaje</Text>
+              </View>
+            ) : null
+          }
+        />
 
-      {/* Input de respuesta */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        {/* Input de respuesta */}
         {replyingTo && (
           <View style={styles.replyContainer}>
             <View style={styles.replyContent}>
@@ -985,6 +1020,10 @@ const GlobalChatScreen = React.memo(() => {
             maxLength={1000}
             returnKeyType="send"
             blurOnSubmit={false}
+            onFocus={() => {
+              // Hacer scroll al final cuando el usuario toca el input
+              setTimeout(() => scrollToEnd(true), 300);
+            }}
             onSubmitEditing={() => {
               if (input.trim()) {
                 handleSend();
@@ -1011,6 +1050,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1A1A1A',
+  },
+  keyboardAvoidingView: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -1361,3 +1403,4 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 });
+

@@ -29,6 +29,7 @@ export class Story {
       this.viewedBy = data.viewedBy || []; // Array de userIds que han visto el story
       this.likes = data.likes || []; // Array de userIds que han dado like
       this.reactions = data.reactions || []; // Array de { userId, type, timestamp }
+      this.comments = data.comments || []; // Array de { id, userId, userName, userProfileImage, content, timestamp }
       
       // Estructura para tabla Lunea-chat (PK/SK)
       this.PK = `STORY#${this.id}`;
@@ -53,12 +54,19 @@ export class Story {
     try {
       const item = { ...this };
       
-      // Convertir fechas a strings ISO
+      // Convertir fechas a strings ISO para almacenamiento
       if (item.createdAt instanceof Date) {
         item.createdAt = item.createdAt.toISOString();
+      } else if (typeof item.createdAt === 'string') {
+        // Asegurar formato ISO válido
+        item.createdAt = new Date(item.createdAt).toISOString();
       }
+      
       if (item.expiresAt instanceof Date) {
         item.expiresAt = item.expiresAt.toISOString();
+      } else if (typeof item.expiresAt === 'string') {
+        // Asegurar formato ISO válido
+        item.expiresAt = new Date(item.expiresAt).toISOString();
       }
 
       // Asegurar que PK y SK estén presentes
@@ -81,12 +89,27 @@ export class Story {
     try {
       if (!item) return null;
       
-      // Convertir strings ISO a fechas
+      // Convertir strings ISO a objetos Date
       if (item.createdAt) {
+        const originalCreatedAt = item.createdAt;
         item.createdAt = new Date(item.createdAt);
+        
+        // Validar que la conversión fue exitosa
+        if (isNaN(item.createdAt.getTime())) {
+          console.error(`⚠️ Fecha createdAt inválida: ${originalCreatedAt}`);
+          item.createdAt = new Date(); // Fallback a fecha actual
+        }
       }
+      
       if (item.expiresAt) {
+        const originalExpiresAt = item.expiresAt;
         item.expiresAt = new Date(item.expiresAt);
+        
+        // Validar que la conversión fue exitosa
+        if (isNaN(item.expiresAt.getTime())) {
+          console.error(`⚠️ Fecha expiresAt inválida: ${originalExpiresAt}`);
+          item.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // Fallback a 24h
+        }
       }
 
       // Extraer ID del PK si está disponible
@@ -201,18 +224,32 @@ export class Story {
         });
 
         const result = await docClient.send(command);
+        console.log(`📊 DynamoDB Scan encontró ${result.Items.length} items`);
         stories.push(...result.Items.map(item => Story.fromDynamoDB(item)));
       }
 
       // Filtrar solo stories activos (no expirados)
-      const activeStories = stories.filter(story => 
-        new Date(story.expiresAt) > new Date()
-      );
+      const activeStories = stories.filter(story => {
+        const isActive = new Date(story.expiresAt) > new Date();
+        if (!isActive) {
+          console.log(`⏰ Story ${story.id} expirado: ${story.expiresAt}`);
+        }
+        return isActive;
+      });
 
       // Ordenar por fecha de creación (más recientes primero)
-      activeStories.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      activeStories.sort((a, b) => {
+        const dateA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
+        const dateB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt);
+        return dateB.getTime() - dateA.getTime();
+      });
 
-      console.log(`🔍 Encontrados ${activeStories.length} stories activos`);
+      console.log(`🔍 Encontrados ${activeStories.length} stories activos (de ${stories.length} totales)`);
+      if (activeStories.length > 0) {
+        console.log(`📅 Story más reciente: ${activeStories[0].userName} - ${activeStories[0].createdAt}`);
+        console.log(`📅 Story más antiguo: ${activeStories[activeStories.length - 1].userName} - ${activeStories[activeStories.length - 1].createdAt}`);
+      }
+      
       return activeStories;
     } catch (error) {
       console.error('❌ Error buscando stories activos:', error);
@@ -460,12 +497,92 @@ export class Story {
     return this.reactions.find(r => r.userId === userId);
   }
 
+  // Métodos para manejar comentarios
+  async addComment(userId, userName, userProfileImage, content) {
+    try {
+      const comment = {
+        id: `comment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        userId,
+        userName,
+        userProfileImage,
+        content: content.trim(),
+        timestamp: new Date().toISOString()
+      };
+
+      this.comments.push(comment);
+      
+      const command = new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: { 
+          PK: this.PK,
+          SK: this.SK
+        },
+        UpdateExpression: 'SET comments = :comments',
+        ExpressionAttributeValues: {
+          ':comments': this.comments
+        },
+        ReturnValues: 'ALL_NEW'
+      });
+
+      const result = await docClient.send(command);
+      Object.assign(this, Story.fromDynamoDB(result.Attributes));
+      console.log(`✅ Comentario agregado al story ${this.id} por usuario ${userId}`);
+      return comment;
+    } catch (error) {
+      console.error('❌ Error agregando comentario al story:', error);
+      throw error;
+    }
+  }
+
+  async removeComment(commentId, userId) {
+    try {
+      const comment = this.comments.find(c => c.id === commentId);
+      if (!comment) {
+        throw new Error('Comentario no encontrado');
+      }
+
+      // Solo el autor del comentario o el autor del story puede eliminarlo
+      if (comment.userId !== userId && this.userId !== userId) {
+        throw new Error('No tienes permisos para eliminar este comentario');
+      }
+
+      this.comments = this.comments.filter(c => c.id !== commentId);
+      
+      const command = new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: { 
+          PK: this.PK,
+          SK: this.SK
+        },
+        UpdateExpression: 'SET comments = :comments',
+        ExpressionAttributeValues: {
+          ':comments': this.comments
+        },
+        ReturnValues: 'ALL_NEW'
+      });
+
+      const result = await docClient.send(command);
+      Object.assign(this, Story.fromDynamoDB(result.Attributes));
+      console.log(`✅ Comentario ${commentId} eliminado del story ${this.id}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Error eliminando comentario del story:', error);
+      throw error;
+    }
+  }
+
+  // Método para obtener comentarios ordenados por fecha
+  getComments() {
+    return this.comments.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  }
+
   // Método para obtener estadísticas del story
   getStats() {
     return {
       views: this.viewedBy.length,
       likes: this.likes.length,
       reactions: this.reactions.length,
+      comments: this.comments.length,
       isExpired: new Date(this.expiresAt) <= new Date()
     };
   }

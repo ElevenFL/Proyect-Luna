@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Story } from '@/services/storiesService';
 import { useAuth } from '@/contexts/AuthContext';
 import storiesService from '@/services/storiesService';
+import CommentsModal from './CommentsModal';
 
 interface StoryPostProps {
   story: Story;
@@ -32,6 +33,7 @@ export default function StoryPost({
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(story.stats.likes);
   const [isLoading, setIsLoading] = useState(false);
+  const [showCommentsModal, setShowCommentsModal] = useState(false);
 
   const handleLike = async () => {
     if (isLoading) return;
@@ -58,6 +60,7 @@ export default function StoryPost({
   };
 
   const handleComment = () => {
+    setShowCommentsModal(true);
     onComment?.(story.id);
   };
 
@@ -140,7 +143,7 @@ export default function StoryPost({
       {/* Acciones */}
       <View style={styles.actions}>
         <TouchableOpacity 
-          style={styles.actionButton} 
+          style={[styles.actionButton, styles.leftButton]} 
           onPress={handleLike}
           disabled={isLoading}
         >
@@ -159,15 +162,25 @@ export default function StoryPost({
           onPress={handleComment}
         >
           <Ionicons name="chatbubble-outline" size={24} color="#FFFFFF" />
+          {story.stats.comments > 0 && (
+            <Text style={styles.actionText}>{story.stats.comments}</Text>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={styles.actionButton} 
+          style={[styles.actionButton, styles.rightButton]} 
           onPress={handleShare}
         >
           <Ionicons name="paper-plane-outline" size={24} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
+
+      {/* Modal de Comentarios */}
+      <CommentsModal
+        visible={showCommentsModal}
+        story={story}
+        onClose={() => setShowCommentsModal(false)}
+      />
     </View>
   );
 }
@@ -192,11 +205,12 @@ const styles = StyleSheet.create({
   },
   profileImageContainer: {
     marginRight: 12,
+    marginLeft: -10,
   },
   profileImage: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 8,
   },
   profileImagePlaceholder: {
     backgroundColor: '#FFD700',
@@ -246,6 +260,7 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
@@ -254,7 +269,14 @@ const styles = StyleSheet.create({
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 24,
+    justifyContent: 'center',
+    marginHorizontal: 60,
+  },
+  leftButton: {
+    justifyContent: 'flex-start',
+  },
+  rightButton: {
+    justifyContent: 'flex-end',
   },
   actionText: {
     color: '#FFFFFF',

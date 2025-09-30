@@ -1,6 +1,15 @@
 import { API_CONFIG } from '@/config/api';
 import ApiService from './apiService';
 
+export interface Comment {
+  id: string;
+  userId: string;
+  userName: string;
+  userProfileImage?: string;
+  content: string;
+  timestamp: string;
+}
+
 export interface Story {
   id: string;
   userId: string;
@@ -18,6 +27,7 @@ export interface Story {
     views: number;
     likes: number;
     reactions: number;
+    comments: number;
     isExpired: boolean;
   };
 }
@@ -199,6 +209,44 @@ class StoriesService {
 
     if (!response.success) {
       throw new Error(response.message || 'Error limpiando stories expirados');
+    }
+
+    return response.data;
+  }
+
+  // Agregar comentario a un story
+  async addComment(storyId: string, content: string): Promise<{ comment: Comment; stats: any }> {
+    const response = await this.makeRequest(`/${storyId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    });
+
+    if (!response.success) {
+      throw new Error(response.message || 'Error agregando comentario');
+    }
+
+    return response.data;
+  }
+
+  // Obtener comentarios de un story
+  async getComments(storyId: string): Promise<{ comments: Comment[]; totalComments: number }> {
+    const response = await this.makeRequest(`/${storyId}/comments`);
+
+    if (!response.success) {
+      throw new Error(response.message || 'Error obteniendo comentarios');
+    }
+
+    return response.data;
+  }
+
+  // Eliminar comentario de un story
+  async removeComment(storyId: string, commentId: string): Promise<{ stats: any }> {
+    const response = await this.makeRequest(`/${storyId}/comments/${commentId}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.success) {
+      throw new Error(response.message || 'Error eliminando comentario');
     }
 
     return response.data;

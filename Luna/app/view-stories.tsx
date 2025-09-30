@@ -25,6 +25,7 @@ export default function ViewStoriesScreen() {
   const [currentUserIndex, setCurrentUserIndex] = useState(0);
   const [isNavigating, setIsNavigating] = useState(false);
   const [isUnmounting, setIsUnmounting] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const animationRef = useRef<Animated.CompositeAnimation | null>(null);
 
@@ -79,53 +80,17 @@ export default function ViewStoriesScreen() {
     }
   }, [isNavigating, isUnmounting, progressAnim, from]);
 
-  useEffect(() => {
-    if (isNavigating || isUnmounting) return; // Evitar actualizaciones durante navegación o desmontaje
-    
-    if (usersWithStories.length > 0 && currentUserIndex < usersWithStories.length) {
-      const currentUserStories = storiesByUser[usersWithStories[currentUserIndex]];
-      if (currentStoryIndex < currentUserStories.length) {
-        const currentStory = currentUserStories[currentStoryIndex];
-        
-        // Marcar como visto
-        if (!currentStory.isViewed && !isUnmounting) {
-          markStoryAsViewed(currentStory.id);
-        }
-
-        // Animar progreso
-        progressAnim.setValue(0);
-        const animation = Animated.timing(progressAnim, {
-          toValue: 1,
-          duration: 5000, // 5 segundos por story
-          useNativeDriver: false,
-        });
-        
-        animationRef.current = animation;
-        
-        animation.start(() => {
-          if (!isNavigating && !isUnmounting) {
-            nextStory();
-          }
-        });
-      }
-    }
-  }, [currentUserIndex, currentStoryIndex, isNavigating, isUnmounting]);
-
-  // Cleanup effect para evitar warnings
-  useEffect(() => {
-    return () => {
-      setIsUnmounting(true);
-      // Limpiar animaciones cuando el componente se desmonte
-      if (animationRef.current) {
-        animationRef.current.stop();
-        animationRef.current = null;
-      }
-      progressAnim.stopAnimation();
-    };
-  }, [progressAnim]);
-
   const nextStory = useCallback(() => {
-    if (usersWithStories.length === 0 || isNavigating || isUnmounting) return;
+    if (usersWithStories.length === 0 || isNavigating || isUnmounting || isTransitioning) return;
+
+    setIsTransitioning(true);
+
+    // Detener cualquier animación en progreso antes de cambiar
+    if (animationRef.current) {
+      animationRef.current.stop();
+      animationRef.current = null;
+    }
+    progressAnim.stopAnimation();
 
     const currentUserStories = storiesByUser[usersWithStories[currentUserIndex]];
     
@@ -142,10 +107,75 @@ export default function ViewStoriesScreen() {
       // Fin de todos los stories
       handleNavigation();
     }
-  }, [currentStoryIndex, currentUserIndex, usersWithStories, storiesByUser, isNavigating, isUnmounting, handleNavigation]);
+
+    // Resetear el estado de transición después de un breve delay
+    setTimeout(() => {
+      setIsTransitioning(false);
+    }, 100);
+  }, [currentStoryIndex, currentUserIndex, usersWithStories, storiesByUser, isNavigating, isUnmounting, isTransitioning, handleNavigation, progressAnim]);
+
+  useEffect(() => {
+    if (isNavigating || isUnmounting || isTransitioning) return; // Evitar actualizaciones durante navegación, desmontaje o transición
+    
+    if (usersWithStories.length > 0 && currentUserIndex < usersWithStories.length) {
+      const currentUserStories = storiesByUser[usersWithStories[currentUserIndex]];
+      if (currentStoryIndex < currentUserStories.length) {
+        const currentStory = currentUserStories[currentStoryIndex];
+        
+        // Marcar como visto
+        if (!currentStory.isViewed && !isUnmounting) {
+          markStoryAsViewed(currentStory.id);
+        }
+
+        // Limpiar animación anterior si existe
+        if (animationRef.current) {
+          animationRef.current.stop();
+          animationRef.current = null;
+        }
+
+        // Animar progreso
+        progressAnim.setValue(0);
+        const animation = Animated.timing(progressAnim, {
+          toValue: 1,
+          duration: 5000, // 5 segundos por story
+          useNativeDriver: false,
+        });
+        
+        animationRef.current = animation;
+        
+        animation.start(() => {
+          if (!isNavigating && !isUnmounting && !isTransitioning) {
+            nextStory();
+          }
+        });
+      }
+    }
+  }, [currentUserIndex, currentStoryIndex, isNavigating, isUnmounting, isTransitioning, usersWithStories, storiesByUser, markStoryAsViewed, progressAnim, nextStory]);
+
+  // Cleanup effect para evitar warnings
+  useEffect(() => {
+    return () => {
+      setIsUnmounting(true);
+      // Limpiar animaciones cuando el componente se desmonte
+      if (animationRef.current) {
+        animationRef.current.stop();
+        animationRef.current = null;
+      }
+      progressAnim.stopAnimation();
+    };
+  }, [progressAnim]);
 
   const previousStory = useCallback(() => {
-    if (isNavigating || isUnmounting) return;
+    if (isNavigating || isUnmounting || isTransitioning) return;
+    
+    setIsTransitioning(true);
+    
+    // Detener cualquier animación en progreso antes de cambiar
+    if (animationRef.current) {
+      animationRef.current.stop();
+      animationRef.current = null;
+    }
+    progressAnim.stopAnimation();
     
     if (currentStoryIndex > 0) {
       if (!isUnmounting) {
@@ -158,7 +188,12 @@ export default function ViewStoriesScreen() {
         setCurrentStoryIndex(previousUserStories.length - 1);
       }
     }
-  }, [currentStoryIndex, currentUserIndex, usersWithStories, storiesByUser, isNavigating, isUnmounting]);
+
+    // Resetear el estado de transición después de un breve delay
+    setTimeout(() => {
+      setIsTransitioning(false);
+    }, 100);
+  }, [currentStoryIndex, currentUserIndex, usersWithStories, storiesByUser, isNavigating, isUnmounting, isTransitioning, progressAnim]);
 
   if (usersWithStories.length === 0) {
     return (
@@ -211,10 +246,14 @@ export default function ViewStoriesScreen() {
               style={[
                 styles.progressBar,
                 {
-                  width: progressAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ['0%', '100%'],
-                  }),
+                  width: index === currentStoryIndex 
+                    ? progressAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ['0%', '100%'],
+                      })
+                    : index < currentStoryIndex 
+                      ? '100%' 
+                      : '0%',
                 },
               ]}
             />

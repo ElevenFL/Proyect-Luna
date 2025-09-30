@@ -413,15 +413,24 @@ export default function GlobalMessagesScreen() {
       <View style={styles.avatarsSection}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.avatarsContainer}>
           {/* Botón para crear Story */}
-          <TouchableOpacity 
-            style={styles.addButton}
-            onPress={() => {
-              console.log('➕ Botón de crear Story presionado');
-              router.push('/create-story');
-            }}
-          >
-            <Ionicons name="add" size={20} color="#000000" />
-          </TouchableOpacity>
+          <View style={[styles.avatarWrapper, styles.firstAvatarWrapper]}>
+            <TouchableOpacity 
+              style={styles.addButton}
+              onPress={() => {
+                console.log('➕ Botón de crear Story presionado');
+                router.push('/create-story');
+              }}
+            >
+              <StoryRing 
+                hasStory={true} 
+                isViewed={userStories.length === 0}
+              >
+                <View style={styles.addButtonInner}>
+                  <Ionicons name="add" size={20} color="#000000" />
+                </View>
+              </StoryRing>
+            </TouchableOpacity>
+          </View>
           
           {/* Mostrar primeros amigos con Stories */}
           {friends.slice(0, 4).map((friend) => {
@@ -433,94 +442,98 @@ export default function GlobalMessagesScreen() {
             const hasUnviewedFriendStories = friendStories.some(story => !story.isViewed);
             
             return (
-              <TouchableOpacity 
-                key={friend.id}
-                style={styles.avatarCircle}
-                onPress={() => {
-                  if (friendStories.length > 0) {
-                    // Si tiene stories, navegar a verlos primero
-                    console.log(`📖 Ver stories de ${friend.name}`);
-                    router.push({
-                      pathname: '/view-stories',
-                      params: { from: 'messages' }
-                    });
-                  } else if (activeChat) {
-                    // Si hay chat activo, navegar a él
-                    handleConversationPress({
-                      conversationId: activeChat.conversationId,
-                      otherUser: activeChat.otherUser,
-                      lastMessagePreview: activeChat.lastMessagePreview || activeChat.messages[0]?.content || 'Iniciar conversación...',
-                      lastActivity: activeChat.lastActivity,
-                      unreadCount: activeChat.unreadCount,
-                      isTyping: activeChat.isTyping
-                    });
-                  } else {
-                    // Si no hay chat activo, crear uno nuevo navegando directamente
-                    router.push({ 
-                      pathname: '/chat/[userId]', 
-                      params: { 
-                        userId: friend.id,
-                        userName: friend.name || '',
-                        userImage: friend.profileImage || '',
-                        userAge: friend.age?.toString() || '',
-                        userGender: friend.gender || 'other',
-                        userCountry: friend.country || 'Unknown',
-                        userCountryFlag: friend.countryFlag || '🌍',
-                        isOnline: friend.isOnline?.toString() || 'false'
-                      } 
-                    });
-                  }
-                }}
-              >
-                <StoryRing 
-                  hasStory={friendStories.length > 0} 
-                  isViewed={!hasUnviewedFriendStories}
+              <View key={friend.id} style={styles.avatarWrapper}>
+                <TouchableOpacity 
+                  style={styles.avatarCircle}
+                  onPress={() => {
+                    if (friendStories.length > 0) {
+                      // Si tiene stories, navegar a verlos primero
+                      console.log(`📖 Ver stories de ${friend.name}`);
+                      router.push({
+                        pathname: '/view-stories',
+                        params: { from: 'messages' }
+                      });
+                    } else if (activeChat) {
+                      // Si hay chat activo, navegar a él
+                      handleConversationPress({
+                        conversationId: activeChat.conversationId,
+                        otherUser: activeChat.otherUser,
+                        lastMessagePreview: activeChat.lastMessagePreview || activeChat.messages[0]?.content || 'Iniciar conversación...',
+                        lastActivity: activeChat.lastActivity,
+                        unreadCount: activeChat.unreadCount,
+                        isTyping: activeChat.isTyping
+                      });
+                    } else {
+                      // Si no hay chat activo, crear uno nuevo navegando directamente
+                      router.push({ 
+                        pathname: '/chat/[userId]', 
+                        params: { 
+                          userId: friend.id,
+                          userName: friend.name || '',
+                          userImage: friend.profileImage || '',
+                          userAge: friend.age?.toString() || '',
+                          userGender: friend.gender || 'other',
+                          userCountry: friend.country || 'Unknown',
+                          userCountryFlag: friend.countryFlag || '🌍',
+                          isOnline: friend.isOnline?.toString() || 'false'
+                        } 
+                      });
+                    }
+                  }}
                 >
-                  {friend.profileImage && friend.profileImage.trim() !== '' ? (
-                    <OptimizedImage 
-                      uri={friend.profileImage} 
-                      style={styles.avatarImage}
-                      cachePolicy="memory-disk"
-                      priority="high" // Prioridad alta para avatares visibles
-                      placeholder={undefined}
-                      fallback={undefined}
-                    />
-                  ) : (
-                    <Text style={styles.avatarInitialsText}>
-                      {getInitials(friend.name)}
-                    </Text>
+                  <StoryRing 
+                    hasStory={friendStories.length > 0} 
+                    isViewed={!hasUnviewedFriendStories}
+                  >
+                    {friend.profileImage && friend.profileImage.trim() !== '' ? (
+                      <OptimizedImage 
+                        uri={friend.profileImage} 
+                        style={styles.avatarImage}
+                        cachePolicy="memory-disk"
+                        priority="high" // Prioridad alta para avatares visibles
+                        placeholder={undefined}
+                        fallback={undefined}
+                      />
+                    ) : (
+                      <Text style={styles.avatarInitialsText}>
+                        {getInitials(friend.name)}
+                      </Text>
+                    )}
+                  </StoryRing>
+                  
+                  {/* Mostrar badge de mensajes no leídos si hay chat activo */}
+                  {activeChat && activeChat.unreadCount > 0 && (
+                    <View style={styles.avatarBadge}>
+                      <Text style={styles.avatarBadgeText}>
+                        {activeChat.unreadCount > 9 ? '9+' : activeChat.unreadCount.toString()}
+                      </Text>
+                    </View>
                   )}
-                </StoryRing>
-                
-                {/* Mostrar badge de mensajes no leídos si hay chat activo */}
-                {activeChat && activeChat.unreadCount > 0 && (
-                  <View style={styles.avatarBadge}>
-                    <Text style={styles.avatarBadgeText}>
-                      {activeChat.unreadCount > 9 ? '9+' : activeChat.unreadCount.toString()}
-                    </Text>
-                  </View>
-                )}
-                
-                {/* Indicador de estado online */}
-                <View style={[
-                  styles.avatarStatusIndicator,
-                  { backgroundColor: friend.isOnline ? '#4CAF50' : '#666666' }
-                ]} />
-              </TouchableOpacity>
+                </TouchableOpacity>
+              </View>
             );
           })}
         </ScrollView>
         
         {/* Botón de amigos al lado derecho */}
-        <TouchableOpacity 
-          style={styles.friendsButton}
-          onPress={() => {
-            console.log('👥 Botón de amigos presionado');
-            router.push('/friends');
-          }}
-        >
-          <Ionicons name="people" size={20} color="#F9C80E" />
-        </TouchableOpacity>
+        <View style={[styles.avatarWrapper, styles.lastAvatarWrapper]}>
+          <TouchableOpacity 
+            style={styles.friendsButton}
+            onPress={() => {
+              console.log('👥 Botón de amigos presionado');
+              router.push('/friends');
+            }}
+          >
+            <StoryRing 
+              hasStory={true} 
+              isViewed={false}
+            >
+              <View style={styles.friendsButtonInner}>
+                <Ionicons name="people" size={20} color="#F9C80E" />
+              </View>
+            </StoryRing>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Barra de búsqueda */}
@@ -595,7 +608,7 @@ const styles = StyleSheet.create({
   },
   avatarsSection: {
     marginTop: 50,
-    paddingVertical: 20,
+    paddingVertical: 10,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -605,15 +618,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    paddingVertical: 6,
   },
   addButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  addButtonInner: {
     width: 60,
     height: 60,
     borderRadius: 16,
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  avatarWrapper: {
+    width: 72,
+    height: 72,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
+  },
+  firstAvatarWrapper: {
+    marginLeft: 0,
+  },
+  lastAvatarWrapper: {
+    marginRight: 0,
   },
   avatarCircle: {
     width: 60,
@@ -622,7 +656,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9C80E',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
     position: 'relative',
   },
   avatarInitialsText: {
@@ -652,33 +685,28 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
-  avatarStatusIndicator: {
-    position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#000000',
-  },
   friendsButton: {
     width: 60,
     height: 60,
     borderRadius: 16,
-    backgroundColor: '#1a1a1a',
-    borderWidth: 2,
-    borderColor: '#F9C80E',
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 12,
+    position: 'relative',
+  },
+  friendsButtonInner: {
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: 16,
     marginBottom: 10,
-    borderWidth: 1,
+    borderWidth: 3,
     borderColor: '#F9C80E',
     borderRadius: 16,
     paddingHorizontal: 15,

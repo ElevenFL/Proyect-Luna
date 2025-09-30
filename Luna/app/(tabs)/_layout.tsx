@@ -12,7 +12,7 @@ export default function TabLayout() {
           tabBarInactiveTintColor: '#FFFFFF',
           tabBarStyle: {
             position: 'absolute',
-            backgroundColor: 'transparent',
+            backgroundColor: 'rgba(26, 26, 26, 0.95)', // Fondo semi-transparente oscuro
             borderTopWidth: 0,
             elevation: 0,
             paddingTop: 13,
@@ -20,6 +20,7 @@ export default function TabLayout() {
             bottom: 0,
             left: 0,
             right: 0,
+            backdropFilter: 'blur(10px)', // Efecto de desenfoque (si está disponible)
           },
           tabBarAllowFontScaling: false,
           headerShown: false,

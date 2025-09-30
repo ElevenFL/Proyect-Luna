@@ -138,12 +138,6 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress, onStoryPress 
               )}
             </StoryRing>
           </TouchableOpacity>
-          
-          {/* Online Status Indicator */}
-          <View style={[
-            styles.statusIndicator,
-            { backgroundColor: user.isOnline ? '#4CAF50' : '#666666' }
-          ]} />
         </View>
 
         {/* User Info */}
@@ -174,11 +168,9 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress, onStoryPress 
             
             {/* País */}
             {(user.countryFlag || user.country) && (
-              <View style={styles.countryBadge}>
-                <Text style={styles.countryFlagText}>
-                  {user.countryFlag || '🌍'}
-                </Text>
-              </View>
+              <Text style={styles.countryFlagText}>
+                {user.countryFlag || '🌍'}
+              </Text>
             )}
           </View>
           
@@ -231,17 +223,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
-  statusIndicator: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: '#000000',
-    zIndex: 10,
-  },
   userInfo: {
     flex: 1,
     marginRight: 12,
@@ -277,20 +258,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
-  countryBadge: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 8,
-    width: 28,
-    height: 20,
-    marginRight: 5,
-    marginBottom: 2,
-    borderWidth: 1,
-    borderColor: '#333333',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   countryFlagText: {
     fontSize: 14,
+    marginRight: 8,
+    marginBottom: 2,
   },
   description: {
     fontSize: 12,

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useMemo, memo, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Dimensions, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Dimensions, Pressable, Animated, PanResponder, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import { User } from './UserCard';
@@ -157,11 +157,44 @@ const GenderSection = memo(({ selectedGender, onGenderSelect }: { selectedGender
 
 GenderSection.displayName = 'GenderSection';
 
-// Nueva sección para países
+// Componente individual de país memoizado para mejor rendimiento
+const CountryItem = memo(({ 
+  country, 
+  flag, 
+  isSelected, 
+  onToggle 
+}: { 
+  country: string; 
+  flag: string; 
+  isSelected: boolean; 
+  onToggle: (country: string) => void; 
+}) => (
+  <TouchableOpacity
+    style={styles.countryItem}
+    onPress={() => onToggle(country)}
+  >
+    <View style={styles.countryItemContent}>
+      <View style={[
+        styles.checkbox,
+        isSelected && styles.checkboxSelected
+      ]}>
+        {isSelected && (
+          <Ionicons name="checkmark" size={16} color="#000000" />
+        )}
+      </View>
+      <Text style={styles.countryFlag}>{flag}</Text>
+      <Text style={styles.countryText}>{country}</Text>
+    </View>
+  </TouchableOpacity>
+));
+
+CountryItem.displayName = 'CountryItem';
+
+// Nueva sección para países con FlatList para virtualización
 const CountriesSection = memo(({ 
   selectedCountries, 
   availableCountries, 
-  countryData, // Nuevo prop para datos pre-computados
+  countryData, 
   onCountryToggle, 
   onSelectAll, 
   onClear 
@@ -173,6 +206,19 @@ const CountriesSection = memo(({
   onSelectAll: () => void; 
   onClear: () => void; 
 }) => {
+  // Crear un Set para búsquedas O(1) en lugar de O(n)
+  const selectedCountriesSet = useMemo(() => new Set(selectedCountries), [selectedCountries]);
+
+  const renderCountryItem = useCallback(({ item }: { item: { country: string; flag: string } }) => (
+    <CountryItem
+      country={item.country}
+      flag={item.flag}
+      isSelected={selectedCountriesSet.has(item.country)}
+      onToggle={onCountryToggle}
+    />
+  ), [selectedCountriesSet, onCountryToggle]);
+
+  const keyExtractor = useCallback((item: { country: string; flag: string }) => item.country, []);
    
   return (
     <View style={styles.section}>
@@ -189,32 +235,23 @@ const CountriesSection = memo(({
       </View>
       
       <View style={styles.countriesContainer}>
-        <ScrollView 
+        <FlatList
+          data={countryData}
+          renderItem={renderCountryItem}
+          keyExtractor={keyExtractor}
           style={styles.countriesList}
           showsVerticalScrollIndicator={true}
           nestedScrollEnabled={true}
-        >
-          {countryData.map(({ country, flag }) => (
-            <TouchableOpacity
-              key={country}
-              style={styles.countryItem}
-              onPress={() => onCountryToggle(country)}
-            >
-              <View style={styles.countryItemContent}>
-                <View style={[
-                  styles.checkbox,
-                  selectedCountries.includes(country) && styles.checkboxSelected
-                ]}>
-                  {selectedCountries.includes(country) && (
-                    <Ionicons name="checkmark" size={16} color="#000000" />
-                  )}
-                </View>
-                <Text style={styles.countryFlag}>{flag}</Text>
-                <Text style={styles.countryText}>{country}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+          initialNumToRender={15}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          removeClippedSubviews={true}
+          getItemLayout={(data, index) => ({
+            length: 49,
+            offset: 49 * index,
+            index,
+          })}
+        />
       </View>
     </View>
   );
@@ -240,6 +277,63 @@ export const FilterModal: React.FC<FilterModalProps> = ({
     currentFilters?.countries || []
   );
   const [countriesLoaded, setCountriesLoaded] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  
+  // Animated value para el desplazamiento del modal
+  const translateY = useRef(new Animated.Value(screenHeight)).current;
+
+  // Función para cerrar el modal con animación
+  const handleCloseModal = useCallback(() => {
+    Animated.timing(translateY, {
+      toValue: screenHeight,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) {
+        setModalVisible(false);
+        setTimeout(() => {
+          onClose();
+        }, 100);
+      }
+    });
+  }, [translateY, onClose]);
+
+  // PanResponder para el gesto de deslizamiento en todo el modal
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Solo activar si el movimiento es principalmente vertical hacia abajo
+        return gestureState.dy > 5 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+      },
+      onMoveShouldSetPanResponderCapture: () => false,
+      onPanResponderMove: (_, gestureState) => {
+        // Solo permitir deslizar hacia abajo (valores positivos)
+        if (gestureState.dy > 0) {
+          translateY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        // Si es un toque rápido en la barra (sin apenas movimiento), cerrar el modal
+        if (Math.abs(gestureState.dy) < 5 && Math.abs(gestureState.dx) < 5) {
+          handleCloseModal();
+        }
+        // Si desliza hacia abajo más de 150 píxeles, cerrar el modal
+        else if (gestureState.dy > 150) {
+          handleCloseModal();
+        } else {
+          // Regresar a la posición original
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 50,
+            friction: 8,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
   // Pre-computar banderas para todos los países una sola vez
   const countryData = useMemo(() => 
@@ -250,15 +344,25 @@ export const FilterModal: React.FC<FilterModalProps> = ({
     [availableCountries]
   );
 
-  // Lazy load países después del mount inicial del modal
+  // Efecto para animar la entrada del modal
   useEffect(() => {
     if (visible) {
-      setCountriesLoaded(false);
-      const timer = setTimeout(() => {
-        setCountriesLoaded(true);
-      }, 100); // Delay pequeño para que el modal se abra primero
+      setModalVisible(true);
+      // Animar la entrada del modal desde abajo
+      translateY.setValue(screenHeight);
+      Animated.spring(translateY, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 10,
+      }).start();
+    }
+  }, [visible, translateY]);
 
-      return () => clearTimeout(timer);
+  // Cargar países inmediatamente ya que FlatList usa virtualización
+  useEffect(() => {
+    if (visible) {
+      setCountriesLoaded(true);
     } else {
       setCountriesLoaded(false);
     }
@@ -332,41 +436,56 @@ export const FilterModal: React.FC<FilterModalProps> = ({
       countries: selectedCountries
     };
     onApplyFilters(filters);
-    onClose();
-  }, [ageRange, selectedGender, selectedCountries, onApplyFilters, onClose]);
+    handleCloseModal();
+  }, [ageRange, selectedGender, selectedCountries, onApplyFilters, handleCloseModal]);
 
-  if (!visible) {
+  if (!visible && !modalVisible) {
     return null;
   }
 
   return (
     <Modal
-      visible={visible}
-      animationType="fade" // Cambiado a fade para apertura más rápida
+      visible={modalVisible}
+      animationType="none"
       transparent={true}
-      onRequestClose={onClose}
+      onRequestClose={handleCloseModal}
     >
-      <Pressable 
-        style={styles.overlay}
-        onPress={onClose}
+      <Animated.View 
+        style={[
+          styles.overlay,
+          {
+            transform: [{ translateY }]
+          }
+        ]}
       >
-        <Pressable 
+        <View 
           style={styles.modalContainer}
-          onPress={(e) => e.stopPropagation()}
+          {...panResponder.panHandlers}
         >
-          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-            {/* Rango de Edad */}
-            <AgeSection 
-              ageRange={ageRange} 
-              onAgeRangeChange={handleAgeRangeChange}
-              onAgeRangeCommit={handleAgeRangeCommit}
-            />
-            
-            {/* Género */}
-            <GenderSection 
-              selectedGender={selectedGender} 
-              onGenderSelect={handleGenderSelect} 
-            />
+          {/* Barra de deslizamiento */}
+          <View style={styles.dragIndicatorContainer}>
+            <View style={styles.dragIndicator} />
+          </View>
+          
+          <View style={styles.content}>
+            <ScrollView 
+              style={styles.fixedContentScroll}
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled={false}
+            >
+              {/* Rango de Edad */}
+              <AgeSection 
+                ageRange={ageRange} 
+                onAgeRangeChange={handleAgeRangeChange}
+                onAgeRangeCommit={handleAgeRangeCommit}
+              />
+              
+              {/* Género */}
+              <GenderSection 
+                selectedGender={selectedGender} 
+                onGenderSelect={handleGenderSelect} 
+              />
+            </ScrollView>
 
             {/* Países - lazy loaded */}
             {countriesLoaded && (
@@ -379,19 +498,19 @@ export const FilterModal: React.FC<FilterModalProps> = ({
                 onClear={handleClearCountries}
               />
             )}
-          </ScrollView>
+          </View>
 
           {/* Footer con botones */}
           <View style={styles.footer}>
-            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+            <TouchableOpacity style={styles.cancelButton} onPress={handleCloseModal}>
               <Text style={styles.cancelButtonText}>Cancelar</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.applyButton} onPress={handleApplyFilters}>
               <Text style={styles.applyButtonText}>Aplicar</Text>
             </TouchableOpacity>
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </Animated.View>
     </Modal>
   );
 };
@@ -405,22 +524,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a1a',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    borderWidth: 1,
-    borderColor: '#333333',
     maxHeight: screenHeight * 0.9,
     minHeight: screenHeight * 0.75,
     height: screenHeight * 0.75,
-    // Sombra para iOS (reemplazada por boxShadow)
-    // shadowColor: '#000000',
-    // shadowOffset: {
-    //   width: 0,
-    //   height: -10,
-    // },
-    // shadowOpacity: 0.7,
-    // shadowRadius: 20,
-    // Elevación para Android
-    elevation: 20,
-    boxShadow: '0px -10px 20px rgba(0, 0, 0, 0.7)',
+    overflow: 'hidden',
+  },
+  dragIndicatorContainer: {
+    width: '100%',
+    paddingTop: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dragIndicator: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 2,
   },
   header: {
     flexDirection: 'row',
@@ -441,10 +560,14 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  fixedContentScroll: {
+    flexGrow: 0,
     paddingHorizontal: 20,
   },
   section: {
     marginVertical: 10,
+    flex: 1,
   },
   sectionTitle: {
     paddingTop: 10,
@@ -547,6 +670,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+    paddingHorizontal: 20,
   },
   countriesActions: {
     flexDirection: 'row',
@@ -566,10 +690,11 @@ const styles = StyleSheet.create({
   countriesContainer: {
     backgroundColor: '#2a2a2a',
     borderRadius: 12,
-    maxHeight: 200,
+    flex: 1,
+    marginHorizontal: 20,
   },
   countriesList: {
-    maxHeight: 200,
+    flex: 1,
   },
   countryItem: {
     paddingHorizontal: 16,

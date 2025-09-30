@@ -91,10 +91,11 @@ export const StoriesProvider: React.FC<StoriesProviderProps> = ({ children }) =>
       // Cargar stories activos desde el backend
       const storiesByUser = await storiesService.getAllActiveStories();
       
-      console.log('📦 Stories cargados del backend:', storiesByUser);
+      console.log('📦 Stories cargados del backend:', storiesByUser.length, 'usuarios');
       
-      // Convertir a array plano de stories
+      // Convertir a array plano de stories preservando el orden
       const allStories: Story[] = [];
+      
       storiesByUser.forEach(userStories => {
         console.log(`👤 Usuario ${userStories.userName} (ID: ${userStories.userId}) tiene ${userStories.stories.length} stories`);
         
@@ -106,11 +107,24 @@ export const StoriesProvider: React.FC<StoriesProviderProps> = ({ children }) =>
           userProfileImage: userStories.userProfileImage
         }));
         
+        // Agregar stories en el orden que vienen del backend
         allStories.push(...storiesWithUserInfo);
       });
 
+      // Ordenar por fecha de creación (más recientes primero) para asegurar consistencia
+      allStories.sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
       console.log(`✅ Total de stories cargados: ${allStories.length}`);
-      console.log(`✅ Stories guardados en estado:`, allStories.map(s => ({ id: s.id, userId: s.userId, userName: s.userName })));
+      console.log(`📅 Primeros 3 stories (más recientes):`, allStories.slice(0, 3).map(s => ({ 
+        id: s.id, 
+        userId: s.userId, 
+        userName: s.userName,
+        createdAt: s.createdAt,
+        timestamp: new Date(s.createdAt).getTime()
+      })));
+      
       setStories(allStories);
     } catch (error) {
       console.error('❌ Error cargando stories:', error);
@@ -142,12 +156,18 @@ export const StoriesProvider: React.FC<StoriesProviderProps> = ({ children }) =>
         location
       });
 
-      // Agregar a la lista local
-      setStories(prevStories => [newStory, ...prevStories]);
+      // Agregar al principio de la lista local (más reciente primero)
+      setStories(prevStories => {
+        const updatedStories = [newStory, ...prevStories];
+        console.log(`✅ Story agregado al principio. Total: ${updatedStories.length}`);
+        return updatedStories;
+      });
       
-      console.log('✅ Story agregado exitosamente:', {
+      console.log('✅ Story creado exitosamente:', {
         id: newStory.id,
+        userId: newStory.userId,
         type: newStory.content.type,
+        createdAt: newStory.createdAt,
         hasImage: newStory.content.type === 'image'
       });
     } catch (error) {

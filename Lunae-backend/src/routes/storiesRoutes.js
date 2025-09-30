@@ -11,7 +11,10 @@ import {
   addReaction,
   deleteStory,
   getStoryStats,
-  cleanupExpiredStories
+  cleanupExpiredStories,
+  addComment,
+  removeComment,
+  getComments
 } from '../controllers/storiesController.js';
 
 const router = Router();
@@ -50,6 +53,17 @@ router.get('/:storyId/stats', auth, getStoryStats);
 
 // Limpiar stories expirados (endpoint administrativo)
 router.post('/cleanup', auth, cleanupExpiredStories);
+
+// Rutas para comentarios de stories
+
+// Agregar comentario a un story
+router.post('/:storyId/comments', auth, addComment);
+
+// Obtener comentarios de un story
+router.get('/:storyId/comments', auth, getComments);
+
+// Eliminar comentario de un story
+router.delete('/:storyId/comments/:commentId', auth, removeComment);
 
 export default router;
 

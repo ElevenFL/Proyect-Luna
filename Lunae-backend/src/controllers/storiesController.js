@@ -215,6 +215,14 @@ export const getAllActiveStories = async (req, res) => {
     // Obtener stories activos
     const stories = await Story.findActiveStories(targetUserIds);
 
+    console.log(`🔍 Stories activos obtenidos: ${stories.length} total`);
+    console.log(`📅 Primeras 3 fechas:`, stories.slice(0, 3).map(s => ({
+      userId: s.userId,
+      userName: s.userName,
+      createdAt: s.createdAt,
+      isDate: s.createdAt instanceof Date
+    })));
+
     // Agrupar stories por usuario
     const storiesByUser = {};
     stories.forEach(story => {
@@ -226,24 +234,55 @@ export const getAllActiveStories = async (req, res) => {
           stories: []
         };
       }
+      
+      // Convertir fechas a ISO string para serialización JSON
+      const createdAtISO = story.createdAt instanceof Date 
+        ? story.createdAt.toISOString() 
+        : story.createdAt;
+      const expiresAtISO = story.expiresAt instanceof Date 
+        ? story.expiresAt.toISOString() 
+        : story.expiresAt;
+      
       storiesByUser[story.userId].stories.push({
         id: story.id,
         content: story.content,
         location: story.location,
-        createdAt: story.createdAt,
-        expiresAt: story.expiresAt,
+        createdAt: createdAtISO,
+        expiresAt: expiresAtISO,
         isViewed: story.hasBeenViewedBy(currentUserId),
         stats: story.getStats()
       });
     });
 
-    console.log(`✅ Todos los stories activos obtenidos: ${Object.keys(storiesByUser).length} usuarios con stories`);
+    // Convertir a array y ordenar por la fecha del story más reciente de cada usuario
+    const storiesByUserArray = Object.values(storiesByUser);
+    
+    // Ordenar cada grupo de stories del usuario por fecha (más reciente primero)
+    storiesByUserArray.forEach(userGroup => {
+      userGroup.stories.sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+    });
+
+    // Ordenar los usuarios por la fecha de su story más reciente
+    storiesByUserArray.sort((a, b) => {
+      const aNewest = new Date(a.stories[0]?.createdAt || 0);
+      const bNewest = new Date(b.stories[0]?.createdAt || 0);
+      return bNewest.getTime() - aNewest.getTime();
+    });
+
+    console.log(`✅ Todos los stories activos obtenidos: ${storiesByUserArray.length} usuarios con stories`);
+    console.log(`📊 Orden final (primeros 3 usuarios):`, storiesByUserArray.slice(0, 3).map(u => ({
+      userName: u.userName,
+      storyCount: u.stories.length,
+      newestStory: u.stories[0]?.createdAt
+    })));
 
     res.json({
       success: true,
       data: {
-        storiesByUser: Object.values(storiesByUser),
-        totalUsers: Object.keys(storiesByUser).length,
+        storiesByUser: storiesByUserArray,
+        totalUsers: storiesByUserArray.length,
         totalStories: stories.length
       }
     });
@@ -560,6 +599,183 @@ export const cleanupExpiredStories = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error limpiando stories expirados:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
+// Agregar comentario a un story
+export const addComment = async (req, res) => {
+  try {
+    const { storyId } = req.params;
+    const { content } = req.body;
+    const currentUserId = req.user.id;
+
+    // Validar contenido del comentario
+    if (!content || !content.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'El contenido del comentario es requerido',
+        error: 'MISSING_CONTENT'
+      });
+    }
+
+    if (content.trim().length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: 'El comentario es demasiado largo (máximo 500 caracteres)',
+        error: 'CONTENT_TOO_LONG'
+      });
+    }
+
+    // Buscar el story
+    const story = await Story.findById(storyId);
+    if (!story) {
+      return res.status(404).json({
+        success: false,
+        message: 'Story no encontrado',
+        error: 'STORY_NOT_FOUND'
+      });
+    }
+
+    // Verificar que el story no haya expirado
+    if (new Date(story.expiresAt) <= new Date()) {
+      return res.status(410).json({
+        success: false,
+        message: 'Story ha expirado',
+        error: 'STORY_EXPIRED'
+      });
+    }
+
+    // Obtener información del usuario
+    const user = await User.findById(currentUserId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Usuario no encontrado',
+        error: 'USER_NOT_FOUND'
+      });
+    }
+
+    // Agregar comentario
+    const comment = await story.addComment(
+      currentUserId,
+      user.displayName || user.username,
+      user.profileImage,
+      content
+    );
+
+    console.log(`✅ Comentario agregado al story ${storyId} por usuario ${currentUserId}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Comentario agregado exitosamente',
+      data: {
+        comment,
+        storyId,
+        stats: story.getStats()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error agregando comentario al story:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
+// Eliminar comentario de un story
+export const removeComment = async (req, res) => {
+  try {
+    const { storyId, commentId } = req.params;
+    const currentUserId = req.user.id;
+
+    // Buscar el story
+    const story = await Story.findById(storyId);
+    if (!story) {
+      return res.status(404).json({
+        success: false,
+        message: 'Story no encontrado',
+        error: 'STORY_NOT_FOUND'
+      });
+    }
+
+    // Eliminar comentario
+    await story.removeComment(commentId, currentUserId);
+
+    console.log(`✅ Comentario ${commentId} eliminado del story ${storyId} por usuario ${currentUserId}`);
+
+    res.json({
+      success: true,
+      message: 'Comentario eliminado exitosamente',
+      data: {
+        storyId,
+        commentId,
+        stats: story.getStats()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error eliminando comentario del story:', error);
+    
+    if (error.message === 'Comentario no encontrado') {
+      return res.status(404).json({
+        success: false,
+        message: 'Comentario no encontrado',
+        error: 'COMMENT_NOT_FOUND'
+      });
+    }
+
+    if (error.message === 'No tienes permisos para eliminar este comentario') {
+      return res.status(403).json({
+        success: false,
+        message: 'No tienes permisos para eliminar este comentario',
+        error: 'FORBIDDEN'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
+// Obtener comentarios de un story
+export const getComments = async (req, res) => {
+  try {
+    const { storyId } = req.params;
+
+    // Buscar el story
+    const story = await Story.findById(storyId);
+    if (!story) {
+      return res.status(404).json({
+        success: false,
+        message: 'Story no encontrado',
+        error: 'STORY_NOT_FOUND'
+      });
+    }
+
+    const comments = story.getComments();
+
+    res.json({
+      success: true,
+      data: {
+        storyId,
+        comments,
+        totalComments: comments.length
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo comentarios del story:', error);
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor',

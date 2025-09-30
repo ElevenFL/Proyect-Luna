@@ -614,7 +614,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#2a2a2a',
+    backgroundColor: '#1a1a1a',
   },
   loadingText: {
     color: '#FFFFFF',

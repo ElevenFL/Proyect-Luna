@@ -45,10 +45,6 @@ export default function CommunityScreen() {
     console.log('Like dado al story:', storyId);
   }, []);
 
-  const handleComment = useCallback((storyId: string) => {
-    Alert.alert('Comentarios', 'Función de comentarios próximamente');
-  }, []);
-
   const handleShare = useCallback((storyId: string) => {
     Alert.alert('Compartir', 'Función de compartir próximamente');
   }, []);
@@ -57,10 +53,9 @@ export default function CommunityScreen() {
     <StoryPost
       story={item}
       onLike={handleLike}
-      onComment={handleComment}
       onShare={handleShare}
     />
-  ), [handleLike, handleComment, handleShare]);
+  ), [handleLike, handleShare]);
 
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
@@ -85,7 +80,6 @@ export default function CommunityScreen() {
 
   const renderHeader = () => (
     <View style={styles.header}>
-      <Text style={styles.title}>Comunidad</Text>
       <View style={styles.tabsContainer}>
         {sections.map((section) => (
           <TouchableOpacity
@@ -213,7 +207,7 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     paddingHorizontal: 16,
-    paddingBottom: 20,
+    paddingBottom: 70, // Espacio adicional para el navbar de abajo
   },
   emptyState: {
     flex: 1,
