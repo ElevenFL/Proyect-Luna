@@ -7,6 +7,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { router } from 'expo-router';
+import LuneaLogo from '@/components/LuneaLogo';
 
 export default function WelcomeScreen() {
   const goToLogin = () => {
@@ -23,7 +24,7 @@ export default function WelcomeScreen() {
       
       <View style={styles.content}>
         {/* Logo */}
-        <Text style={styles.logo}>Lunae</Text>
+        <LuneaLogo width={200} height={80} />
         
         {/* Welcome Text */}
         <Text style={styles.welcomeText}>Welcome to the community</Text>
@@ -48,20 +49,13 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#1a1a1a',
   },
   content: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
-  },
-  logo: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#FFD700',
-    textAlign: 'center',
-    marginBottom: 20,
   },
   welcomeText: {
     fontSize: 18,

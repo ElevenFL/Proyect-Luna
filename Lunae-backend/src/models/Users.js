@@ -780,6 +780,100 @@ export class User {
     }
   }
 
+  // Método estático para registrar un like regular entre usuarios
+  static async recordLike(fromUserId, toUserId) {
+    try {
+      // Asegurar que la tabla existe
+      await User.ensureTableExists();
+      
+      const command = new PutCommand({
+        TableName: TABLE_NAME,
+        Item: {
+          PK: `LIKE#${fromUserId}`,
+          SK: `TO#${toUserId}`,
+          fromUserId,
+          toUserId,
+          timestamp: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        }
+      });
+
+      await docClient.send(command);
+      console.log(`✅ Like registrado: ${fromUserId} -> ${toUserId}`);
+
+      // Verificar si es un match (si el otro usuario también dio like)
+      const isMatch = await User.hasGivenLike(toUserId, fromUserId);
+      
+      if (isMatch) {
+        console.log(`🎉 ¡MATCH! ${fromUserId} <-> ${toUserId}`);
+        // Aquí podrías agregar lógica adicional para manejar matches
+        // como crear una conversación automáticamente, enviar notificaciones, etc.
+      }
+
+      return { isMatch };
+    } catch (error) {
+      console.error('❌ Error registrando like:', error);
+      throw error;
+    }
+  }
+
+  // Método estático para verificar si un usuario ya dio like a otro
+  static async hasGivenLike(fromUserId, toUserId) {
+    try {
+      // Asegurar que la tabla existe
+      await User.ensureTableExists();
+      
+      const command = new GetCommand({
+        TableName: TABLE_NAME,
+        Key: { 
+          PK: `LIKE#${fromUserId}`,
+          SK: `TO#${toUserId}`
+        }
+      });
+
+      const result = await docClient.send(command);
+      return !!result.Item;
+    } catch (error) {
+      console.error('❌ Error verificando like:', error);
+      return false;
+    }
+  }
+
+  // Método estático para obtener todos los likes recibidos por un usuario
+  static async getReceivedLikes(userId) {
+    try {
+      // Asegurar que la tabla existe
+      await User.ensureTableExists();
+      
+      // Buscar todos los likes donde el usuario es el receptor
+      // Esto requiere un scan ya que necesitamos buscar por el SK que contiene el userId
+      const command = new ScanCommand({
+        TableName: TABLE_NAME,
+        FilterExpression: 'begins_with(SK, :skPrefix) AND SK = :skValue',
+        ExpressionAttributeValues: {
+          ':skPrefix': 'TO#',
+          ':skValue': `TO#${userId}`
+        }
+      });
+
+      const result = await docClient.send(command);
+      
+      // Mapear los resultados a un formato más útil
+      const receivedLikes = result.Items?.map(item => ({
+        fromUserId: item.PK.replace('LIKE#', ''),
+        toUserId: item.SK.replace('TO#', ''),
+        timestamp: item.timestamp,
+        createdAt: item.createdAt
+      })) || [];
+
+      console.log(`✅ ${receivedLikes.length} likes recibidos encontrados para usuario ${userId}`);
+      return receivedLikes;
+    } catch (error) {
+      console.error('❌ Error obteniendo likes recibidos:', error);
+      return [];
+    }
+  }
+
   // Método para seleccionar campos específicos (simular select de Mongoose)
   select(fields) {
     try {

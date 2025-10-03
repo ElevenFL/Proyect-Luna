@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import { User } from "../models/Users.js";
 import { auth } from "../middleware/auth.js";
 import { getFlagFromAddress } from "../utils/countryFlags.js";
-import { giveSuperLike, checkSuperLikeStatus } from "../controllers/profileController.js";
+import { giveSuperLike, checkSuperLikeStatus, giveLike, checkLikeStatus, getReceivedLikes } from "../controllers/profileController.js";
 import { sendFriendRequest } from "../controllers/friendRequestController.js";
 import { FriendRequest } from "../models/FriendRequest.js";
 import { Chat } from "../models/Chat.js";
@@ -633,12 +633,22 @@ router.get("/home", auth, async (req, res) => {
         // Agregar prefetching solo si está habilitado
         if (prefetchingEnabled) {
           let hasGivenSuperLike = false;
+          let hasGivenLike = false;
+          let isMatch = false;
           let friendRequestStatus = 'none';
           let hasActiveConversation = false;
 
           try {
             // Verificar estado de super like
             hasGivenSuperLike = await User.hasGivenSuperLike(currentUserId, user.id);
+            
+            // Verificar estado de like regular
+            hasGivenLike = await User.hasGivenLike(currentUserId, user.id);
+            
+            // Verificar si hay match mutuo
+            if (hasGivenLike) {
+              isMatch = await User.hasGivenLike(user.id, currentUserId);
+            }
             
             // Verificar estado de solicitud de amistad
             const friendRequestKey = `${currentUserId}-${user.id}`;
@@ -664,6 +674,10 @@ router.get("/home", auth, async (req, res) => {
               },
               conversation: {
                 hasActiveConversation: hasActiveConversation
+              },
+              like: {
+                hasGivenLike: hasGivenLike,
+                isMatch: isMatch
               }
             }
           };
@@ -687,7 +701,7 @@ router.get("/home", auth, async (req, res) => {
       data: validUsers,
       prefetching: {
         enabled: prefetchingEnabled,
-        includes: prefetchingEnabled ? ['superLike', 'friendRequest', 'conversation'] : [],
+        includes: prefetchingEnabled ? ['superLike', 'friendRequest', 'conversation', 'like'] : [],
         usersCount: validUsers.length,
         ...(prefetchingError && { error: prefetchingError })
       }
@@ -838,6 +852,15 @@ router.post('/:userId/super-like', auth, giveSuperLike);
 
 // Ruta para verificar el estado de super like
 router.get('/:userId/super-like-status', auth, checkSuperLikeStatus);
+
+// Ruta para dar like regular a un usuario
+router.post('/:userId/like', auth, giveLike);
+
+// Ruta para verificar el estado de like regular
+router.get('/:userId/like-status', auth, checkLikeStatus);
+
+// Ruta para obtener likes recibidos
+router.get('/received-likes', auth, getReceivedLikes);
 
 // POST /api/users/:userId/friend-request - Enviar solicitud de amistad
 router.post('/:userId/friend-request', auth, sendFriendRequest);

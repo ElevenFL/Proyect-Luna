@@ -16,8 +16,15 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
-      "package": "com.eleven.lunae"
+      "package": "com.eleven.lunae",
+      "navigationBar": {
+        "visible": "sticky-immersive",
+        "backgroundColor": "#151718"
+      },
+      "statusBar": {
+        "barStyle": "light-content",
+        "backgroundColor": "#151718"
+      }
     },
     "web": {
       "bundler": "metro",

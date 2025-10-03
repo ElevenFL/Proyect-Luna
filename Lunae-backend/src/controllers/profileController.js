@@ -301,7 +301,7 @@ export const getUserProfileInfo = async (req, res) => {
     console.log('📋 Obteniendo información completa del perfil:', { userId, currentUserId });
 
     // Ejecutar todas las consultas en paralelo para mejor rendimiento
-    const [targetUser, superLikeStatus, friendRequests, conversations] = await Promise.allSettled([
+    const [targetUser, superLikeStatus, friendRequests, conversations, likeStatus] = await Promise.allSettled([
       User.findById(userId),
       // Verificar estado de super like
       (async () => {
@@ -342,6 +342,17 @@ export const getUserProfileInfo = async (req, res) => {
           console.error('Error verificando conversación:', error);
           return false;
         }
+      })(),
+      // Verificar estado de like regular
+      (async () => {
+        try {
+          const hasGivenLike = await User.hasGivenLike(currentUserId, userId);
+          const isMatch = hasGivenLike && await User.hasGivenLike(userId, currentUserId);
+          return { hasGivenLike, isMatch };
+        } catch (error) {
+          console.error('Error verificando like regular:', error);
+          return { hasGivenLike: false, isMatch: false };
+        }
       })()
     ]);
 
@@ -350,6 +361,7 @@ export const getUserProfileInfo = async (req, res) => {
     const superLikeData = superLikeStatus.status === 'fulfilled' ? superLikeStatus.value : { starsCount: 0, hasGivenSuperLike: false };
     const friendRequestStatus = friendRequests.status === 'fulfilled' ? friendRequests.value : 'none';
     const hasActiveConversation = conversations.status === 'fulfilled' ? conversations.value : false;
+    const likeData = likeStatus.status === 'fulfilled' ? likeStatus.value : { hasGivenLike: false };
 
     if (!user) {
       return res.status(404).json({
@@ -385,12 +397,191 @@ export const getUserProfileInfo = async (req, res) => {
         },
         conversation: {
           hasActiveConversation
+        },
+        like: {
+          hasGivenLike: likeData.hasGivenLike,
+          isMatch: likeData.isMatch
         }
       }
     });
 
   } catch (error) {
     console.error('❌ Error obteniendo información del perfil:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: 'SERVER_ERROR',
+      details: error.message || 'Error desconocido'
+    });
+  }
+};
+
+// Dar like regular a un usuario (puede resultar en match)
+export const giveLike = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    console.log('💖 Usuario', currentUserId, 'dando like a usuario', userId);
+
+    // Verificar que no se esté dando like a sí mismo
+    if (currentUserId === userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No puedes darte un like a ti mismo',
+        error: 'CANNOT_LIKE_SELF'
+      });
+    }
+
+    // Verificar si ya se dio like a este usuario
+    const hasAlreadyLiked = await User.hasGivenLike(currentUserId, userId);
+    if (hasAlreadyLiked) {
+      console.log('❌ Usuario ya dio like a este perfil:', currentUserId, '->', userId);
+      return res.status(400).json({
+        success: false,
+        message: 'Ya has dado un like a este usuario',
+        error: 'ALREADY_LIKED'
+      });
+    }
+
+    // Buscar el usuario al que se le dará el like
+    const targetUser = await User.findById(userId);
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'Usuario no encontrado',
+        error: 'USER_NOT_FOUND'
+      });
+    }
+
+    // Registrar el like
+    const likeResult = await User.recordLike(currentUserId, userId);
+    
+    console.log('✅ Like dado exitosamente. Es match:', likeResult.isMatch);
+
+    res.json({
+      success: true,
+      message: likeResult.isMatch ? '¡Es un match! 🎉' : 'Like dado exitosamente',
+      data: {
+        isMatch: likeResult.isMatch,
+        targetUser: {
+          id: targetUser.id,
+          name: targetUser.displayName || targetUser.username,
+          profileImage: targetUser.profileImage
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error dando like:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: 'SERVER_ERROR',
+      details: error.message || 'Error desconocido'
+    });
+  }
+};
+
+// Verificar si un usuario ya dio like a otro
+export const checkLikeStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    console.log('🔍 Verificando estado de like:', currentUserId, '->', userId);
+
+    // Verificar si ya se dio like a este usuario
+    const hasAlreadyLiked = await User.hasGivenLike(currentUserId, userId);
+    
+    // Verificar si hay match mutuo
+    const isMutualMatch = hasAlreadyLiked && await User.hasGivenLike(userId, currentUserId);
+
+    res.json({
+      success: true,
+      data: {
+        hasGivenLike: hasAlreadyLiked,
+        isMatch: isMutualMatch,
+        targetUser: {
+          id: userId
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error verificando estado de like:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: 'SERVER_ERROR',
+      details: error.message || 'Error desconocido'
+    });
+  }
+};
+
+// Obtener likes recibidos por un usuario
+export const getReceivedLikes = async (req, res) => {
+  try {
+    const currentUserId = req.user.id;
+
+    console.log('💖 Obteniendo likes recibidos para usuario:', currentUserId);
+
+    // Obtener todos los likes donde el usuario actual es el receptor
+    const receivedLikes = await User.getReceivedLikes(currentUserId);
+
+    // Obtener información de los usuarios que dieron like
+    const likesWithUserInfo = await Promise.all(
+      receivedLikes.map(async (like) => {
+        try {
+          const user = await User.findById(like.fromUserId);
+          if (!user) {
+            return null; // Usuario no encontrado
+          }
+
+          // Verificar si hay match mutuo
+          const isMatch = await User.hasGivenLike(currentUserId, like.fromUserId);
+
+          return {
+            id: `like_${like.fromUserId}_${like.timestamp}`,
+            type: isMatch ? 'match' : 'like',
+            fromUserId: like.fromUserId,
+            userName: user.displayName || user.username,
+            userImage: user.profileImage,
+            timestamp: like.timestamp,
+            isMatch: isMatch,
+            // Información adicional del usuario para el perfil
+            userAge: user.birthDate ? Math.floor((new Date() - new Date(user.birthDate)) / (365.25 * 24 * 60 * 60 * 1000)) : 0,
+            userGender: user.gender,
+            userCountry: user.location?.country || 'Unknown',
+            userCountryFlag: user.location?.countryFlag || '🌍',
+            userDescription: user.description || 'Usuario de Luna',
+            userIsOnline: user.isOnline
+          };
+        } catch (error) {
+          console.error('Error obteniendo información del usuario:', error);
+          return null;
+        }
+      })
+    );
+
+    // Filtrar resultados nulos
+    const validLikes = likesWithUserInfo.filter(like => like !== null);
+
+    console.log(`✅ ${validLikes.length} likes recibidos encontrados`);
+
+    res.json({
+      success: true,
+      message: "Likes recibidos obtenidos exitosamente",
+      data: {
+        likes: validLikes
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo likes recibidos:', error);
     
     res.status(500).json({
       success: false,

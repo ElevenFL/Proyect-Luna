@@ -13,18 +13,38 @@ export default function UserProfileScreen() {
   const params = useLocalSearchParams();
   const { getPrefetchedUser } = usePrefetch();
   
-  // Parsear los datos del usuario de los parámetros
-  const user = {
-    id: params.id as string || 'unknown',
-    name: params.name as string || 'Usuario',
-    age: parseInt(params.age as string) || 0,
-    gender: params.gender as string || 'other',
-    profileImage: params.profileImage as string || '',
-    country: params.country as string || 'Unknown',
-    countryFlag: params.countryFlag as string || '🌍',
-    isOnline: params.isOnline === 'true',
-    description: params.description as string || 'Usuario de Luna',
+  // Función para obtener los datos del usuario (combinando params con datos completos)
+  const getUserData = () => {
+    // Si tenemos datos completos del usuario, usarlos como prioridad
+    if (completeUserData) {
+      return {
+        id: completeUserData.id || params.id as string || 'unknown',
+        name: completeUserData.displayName || completeUserData.username || params.name as string || 'Usuario',
+        age: completeUserData.age || parseInt(params.age as string) || 0,
+        gender: completeUserData.gender || params.gender as string || 'other',
+        profileImage: completeUserData.profileImage || params.profileImage as string || '',
+        country: completeUserData.location?.country || params.country as string || 'Unknown',
+        countryFlag: completeUserData.location?.countryFlag || params.countryFlag as string || '🌍',
+        isOnline: completeUserData.isOnline !== undefined ? completeUserData.isOnline : (params.isOnline === 'true'),
+        description: completeUserData.description || params.description as string || 'Usuario de Luna',
+      };
+    }
+    
+    // Si no hay datos completos, usar los parámetros
+    return {
+      id: params.id as string || 'unknown',
+      name: params.name as string || 'Usuario',
+      age: parseInt(params.age as string) || 0,
+      gender: params.gender as string || 'other',
+      profileImage: params.profileImage as string || '',
+      country: params.country as string || 'Unknown',
+      countryFlag: params.countryFlag as string || '🌍',
+      isOnline: params.isOnline === 'true',
+      description: params.description as string || 'Usuario de Luna',
+    };
   };
+
+  const user = getUserData();
 
   // Intentar obtener datos prefetchados
   const prefetchedData = getPrefetchedUser(user.id);
@@ -39,10 +59,44 @@ export default function UserProfileScreen() {
   const [hasActiveConversation, setHasActiveConversation] = useState(false);
   const [friendRequestStatus, setFriendRequestStatus] = useState<'none' | 'pending' | 'accepted' | 'rejected'>('none');
   const [isLoadingStatus, setIsLoadingStatus] = useState(true);
+  const [showMatchAnimation, setShowMatchAnimation] = useState(false);
+  const [isMatch, setIsMatch] = useState(false);
+  const [completeUserData, setCompleteUserData] = useState<any>(null);
   
   // Cache simple para evitar llamadas repetidas
   const [cacheTimestamp, setCacheTimestamp] = useState(0);
   const CACHE_DURATION = 30000; // 30 segundos
+
+  // Cargar información completa del usuario si faltan datos
+  useEffect(() => {
+    const loadUserInfo = async () => {
+      // Verificar si faltan datos importantes del usuario
+      const hasIncompleteData = !user.age || user.age === 0 || 
+                               !user.gender || user.gender === 'other' ||
+                               !user.country || user.country === 'Unknown' ||
+                               !user.description || user.description === 'Usuario de Luna';
+
+      if (hasIncompleteData && user.id !== 'unknown') {
+        console.log('🔄 Cargando información completa del usuario...');
+        
+        try {
+          const userInfoResponse = await apiService.get(`/users/${user.id}`);
+          
+          if (userInfoResponse.success && userInfoResponse.data) {
+            const userData = userInfoResponse.data;
+            
+            // Almacenar los datos completos del usuario
+            setCompleteUserData(userData);
+            console.log('✅ Información del usuario cargada:', userData);
+          }
+        } catch (error) {
+          console.error('Error cargando información del usuario:', error);
+        }
+      }
+    };
+
+    loadUserInfo();
+  }, [user.id]);
 
   // Cargar contador de estrellas, estado de super like, estado de solicitud de amistad y verificar conversación activa al montar el componente
   useEffect(() => {
@@ -52,13 +106,15 @@ export default function UserProfileScreen() {
         console.log('📦 Usando datos prefetchados para carga instantánea');
         
         // Aplicar datos prefetchados inmediatamente
-        const { superLike, friendRequest, conversation } = prefetchedData.prefetchData;
+        const { superLike, friendRequest, conversation, like } = prefetchedData.prefetchData;
         
         setStarsCount(superLike.starsCount || 0);
         setHasGivenSuperLike(superLike.hasGivenSuperLike || false);
         setSuperLiked(superLike.hasGivenSuperLike || false);
         setFriendRequestStatus(friendRequest.status);
         setHasActiveConversation(conversation.hasActiveConversation);
+        setLiked(like?.hasGivenLike || false);
+        setIsMatch(like?.isMatch || false);
         
         if (friendRequest.status === 'accepted') {
           setFriends(true);
@@ -85,7 +141,7 @@ export default function UserProfileScreen() {
         const profileInfoResponse = await apiService.get(`/profiles/${user.id}/info`);
         
         if (profileInfoResponse.success && profileInfoResponse.data) {
-          const { user: userData, superLike, friendRequest, conversation } = profileInfoResponse.data;
+          const { user: userData, superLike, friendRequest, conversation, like } = profileInfoResponse.data;
           
           // Actualizar estado de super like
           if (superLike) {
@@ -106,6 +162,12 @@ export default function UserProfileScreen() {
           if (conversation) {
             setHasActiveConversation(conversation.hasActiveConversation);
           }
+          
+          // Actualizar estado de like regular
+          if (like) {
+            setLiked(like.hasGivenLike || false);
+            setIsMatch(like.isMatch || false);
+          }
         } else {
           throw new Error('Error en la respuesta del servidor');
         }
@@ -118,6 +180,8 @@ export default function UserProfileScreen() {
         setSuperLiked(false);
         setHasActiveConversation(false);
         setFriendRequestStatus('none');
+        setLiked(false);
+        setIsMatch(false);
       } finally {
         setIsLoadingStatus(false);
         setCacheTimestamp(Date.now());
@@ -131,9 +195,37 @@ export default function UserProfileScreen() {
     router.back();
   };
 
-  const handleLike = () => {
-    setLiked(prev => !prev);
-    console.log('Like user:', user.name);
+  const handleLike = async () => {
+    // Prevenir like duplicado
+    if (liked) {
+      console.log('Ya se ha dado like a este usuario');
+      return;
+    }
+
+    try {
+      // Enviar like al backend
+      const response = await apiService.post(`/users/${user.id}/like`, {});
+      
+      if (response.success) {
+        setLiked(true);
+        console.log('Like enviado exitosamente:', user.name);
+        
+        // Si es un match, mostrar feedback especial y actualizar estado
+        if (response.data?.isMatch) {
+          console.log('¡Es un match! 🎉');
+          setIsMatch(true);
+          setShowMatchAnimation(true);
+          // Ocultar la animación después de 3 segundos
+          setTimeout(() => {
+            setShowMatchAnimation(false);
+          }, 3000);
+        }
+      } else {
+        console.error('Error en respuesta del servidor:', response.message);
+      }
+    } catch (error) {
+      console.error('Error enviando like:', error);
+    }
   };
 
   const handleMessage = () => {
@@ -196,6 +288,26 @@ export default function UserProfileScreen() {
       .slice(0, 2);
   };
 
+  // Función para determinar el color y estado del corazón
+  const getHeartState = () => {
+    if (isMatch) {
+      return {
+        name: 'heart' as const,
+        color: '#FF4458' // Rojo para match mutuo
+      };
+    } else if (liked) {
+      return {
+        name: 'heart' as const,
+        color: '#FFFFFF' // Blanco para like unilateral
+      };
+    } else {
+      return {
+        name: 'heart-outline' as const,
+        color: '#FFFFFF' // Blanco outline para sin like
+      };
+    }
+  };
+
   // Función auxiliar para obtener el estado del icono de solicitud de amistad
   // Estados del icono:
   // - 'accepted': Icono relleno verde (#4CAF50) - Son amigos
@@ -241,6 +353,13 @@ export default function UserProfileScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Animación de Match */}
+      {showMatchAnimation && (
+        <View style={styles.matchAnimation}>
+          <Text style={styles.matchText}>¡Es un Match! 🎉</Text>
+        </View>
+      )}
+
       {/* Tarjeta de imagen */}
       <View style={[styles.imageCardWrapper, { width: cardWidth, height: cardHeight }]}>
         {user.profileImage ? (
@@ -263,7 +382,7 @@ export default function UserProfileScreen() {
       {/* Fila de acciones */}
       <View style={styles.actionRow}>
         <TouchableOpacity onPress={handleLike} style={styles.actionIconButton}>
-          <Ionicons name={liked ? 'heart' : 'heart-outline'} size={28} color={liked ? '#FF4458' : '#FFFFFF'} />
+          <Ionicons name={getHeartState().name} size={28} color={getHeartState().color} />
         </TouchableOpacity>
         <TouchableOpacity onPress={handleMessage} style={styles.actionIconButton}>
           <Ionicons 
@@ -430,5 +549,33 @@ const styles = StyleSheet.create({
     color: '#CCCCCC',
     lineHeight: 18,
     paddingRight: 24,
+  },
+  matchAnimation: {
+    position: 'absolute',
+    top: 100,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(76, 175, 80, 0.95)',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    marginHorizontal: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  matchText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textAlign: 'center',
   },
 });

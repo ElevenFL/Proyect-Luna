@@ -2,6 +2,9 @@ import { Tabs } from 'expo-router';
 import { AuthGuard } from '@/components/AuthGuard';
 import { Ionicons } from '@expo/vector-icons';
 import { TouchableWithoutFeedback, View } from 'react-native';
+import EstrellaIcon from '@/components/EstrellaIcon';
+import CasaIcon from '@/components/CasaIcon';
+import ChatIcon from '@/components/ChatIcon';
 
 export default function TabLayout() {
   return (
@@ -12,15 +15,15 @@ export default function TabLayout() {
           tabBarInactiveTintColor: '#FFFFFF',
           tabBarStyle: {
             position: 'absolute',
-            backgroundColor: 'rgba(26, 26, 26, 0.95)', // Fondo semi-transparente oscuro
+            backgroundColor: 'rgba(26, 26, 26, 1)', // Fondo semi-transparente oscuro
             borderTopWidth: 0,
-            elevation: 0,
-            paddingTop: 13,
+            elevation: 10,
+            paddingTop: 10,
             paddingHorizontal: 10,
+            marginBottom: 0,
             bottom: 0,
             left: 0,
             right: 0,
-            backdropFilter: 'blur(10px)', // Efecto de desenfoque (si está disponible)
           },
           tabBarAllowFontScaling: false,
           headerShown: false,
@@ -34,7 +37,7 @@ export default function TabLayout() {
           name="index"
           options={{
             tabBarIcon: ({ color }) => (
-              <Ionicons name="home" size={28} color={color} />
+              <CasaIcon size={28} color={color} />
             ),
             tabBarLabel: () => null,
             tabBarIconStyle: { alignSelf: 'center' },
@@ -45,7 +48,7 @@ export default function TabLayout() {
           name="messages"
           options={{
             tabBarIcon: ({ color }) => (
-              <Ionicons name="chatbubbles" size={28} color={color} />
+              <ChatIcon size={28} color={color} />
             ),
             tabBarLabel: () => null,
             tabBarIconStyle: { alignSelf: 'center' },
@@ -56,7 +59,7 @@ export default function TabLayout() {
           name="community"
           options={{
             tabBarIcon: ({ color }) => (
-              <Ionicons name="people" size={28} color={color} />
+              <EstrellaIcon size={30} color={color} />
             ),
             tabBarLabel: () => null,
             tabBarIconStyle: { alignSelf: 'center' },
@@ -66,7 +69,7 @@ export default function TabLayout() {
           name="profile"
           options={{
             tabBarIcon: ({ color }) => (
-              <Ionicons name="person" size={28} color={color} />
+              <Ionicons name="person" size={30} color={color} />
             ),
             tabBarLabel: () => null,
             tabBarIconStyle: { alignSelf: 'center' },

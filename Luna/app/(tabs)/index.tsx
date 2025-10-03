@@ -14,6 +14,7 @@ import StoriesDebugger from '@/components/StoriesDebugger';
 import { useFilterPersistence } from '@/hooks/useFilterPersistence';
 import { useNotificationCount } from '@/hooks/useNotificationCount';
 import NotificationBadge from '@/components/NotificationBadge';
+import LuneaLogo from '@/components/LuneaLogo';
 
 // Datos de ejemplo de usuarios con información de conexión y ubicaciones reales
 const createMockUsers = (): User[] => {
@@ -355,17 +356,19 @@ export default function HomeScreen() {
       
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Lunea</Text>
-          <View style={styles.headerIcons}>
-            <TouchableOpacity onPress={handleFilterPress} style={styles.iconButton}>
-              <Ionicons name="options-outline" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleNotificationPress} style={styles.iconButton}>
-              <View style={styles.notificationIconContainer}>
-                <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
-                <NotificationBadge count={unreadCount} size="small" />
-              </View>
-            </TouchableOpacity>
+          <LuneaLogo width={100} height={32} />
+          <View style={styles.headerRight}>
+            <View style={styles.headerIcons}>
+              <TouchableOpacity onPress={handleFilterPress} style={styles.iconButton}>
+                <Ionicons name="options-outline" size={30} color="#FFFFFF" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleNotificationPress} style={styles.iconButton}>
+                <View style={styles.notificationIconContainer}>
+                  <Ionicons name="notifications-outline" size={30} color="#FFFFFF" />
+                  <NotificationBadge count={unreadCount} size="small" />
+                </View>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -425,9 +428,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingTop: 50,
-    paddingHorizontal: 20,
-    paddingBottom: 0,
+    paddingTop: 45,
+    paddingHorizontal: 15,
+    paddingBottom: 10,
+    shadowColor: '#000000',
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 8,
   },
   headerText: {
     fontSize: 16,
@@ -440,12 +451,17 @@ const styles = StyleSheet.create({
     color: '#FFD700',
     marginBottom: 10,
   },
-  headerIcons: {
+  headerRight: {
     position: 'absolute',
-    top: 60,
-    right: 20,
+    top: 45,
+    right: 10,
     flexDirection: 'row',
-    gap: 16,
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerIcons: {
+    flexDirection: 'row',
+    gap: 10,
   },
   iconButton: {
     padding: 4,

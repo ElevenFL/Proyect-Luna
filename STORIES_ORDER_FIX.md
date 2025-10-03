@@ -145,3 +145,5 @@ Si el problema persiste:
 2. Revisar los logs del frontend para ver cómo se procesan
 3. Verificar que las fechas en DynamoDB estén en formato ISO válido
 4. Usar el debugger para inspeccionar el estado de `stories` en `StoriesContext`
+
+

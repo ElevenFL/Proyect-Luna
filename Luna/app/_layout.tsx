@@ -1,9 +1,11 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack, usePathname } from 'expo-router';
+import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
+import * as SystemUI from 'expo-system-ui';
+import { useEffect } from 'react';
+import { Platform, View } from 'react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -14,29 +16,48 @@ import { PrefetchProvider } from '@/contexts/PrefetchContext';
 import { StoriesProvider } from '@/contexts/StoriesContext';
 import SafeAlert from '@/components/SafeAlert';
 import { AppInitializer } from '@/components/AppInitializer';
+import { Colors } from '@/constants/Colors';
 import '@/config/amplify'; // Inicializar Amplify
 
 const isDevelopment = __DEV__;
 
+// Prevenir que la splash screen se oculte automáticamente
+SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
+  const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
-  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    // Pequeño delay para asegurar que el contexto de React esté completamente inicializado
-    const timer = setTimeout(() => {
-      setIsReady(true);
-    }, 100);
+    if (loaded || error) {
+      // Ocultar splash screen cuando las fuentes estén listas
+      SplashScreen.hideAsync();
+    }
+  }, [loaded, error]);
 
-    return () => clearTimeout(timer);
-  }, []);
+  // Configurar el color de la barra de navegación del sistema en Android
+  useEffect(() => {
+    const configureSystemUI = async () => {
+      if (Platform.OS === 'android') {
+        const isDark = colorScheme === 'dark';
+        const backgroundColor = isDark ? Colors.dark.background : Colors.light.background;
+        
+        try {
+          // Configurar el color de fondo de la barra de navegación
+          await SystemUI.setBackgroundColorAsync(backgroundColor);
+        } catch (error) {
+          console.log('Error configurando SystemUI:', error);
+        }
+      }
+    };
+    
+    configureSystemUI();
+  }, [colorScheme]);
 
-  if (!loaded || !isReady) {
-    // Async font loading only occurs in development.
+  // No retornar null - en su lugar, dejar que SplashScreen maneje la carga
+  if (!loaded && !error) {
     return null;
   }
 

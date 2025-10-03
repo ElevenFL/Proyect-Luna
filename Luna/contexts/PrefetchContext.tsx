@@ -11,6 +11,10 @@ interface PrefetchData {
   conversation: {
     hasActiveConversation: boolean;
   };
+  like: {
+    hasGivenLike: boolean;
+    isMatch: boolean;
+  };
 }
 
 interface UserWithPrefetch {

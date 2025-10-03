@@ -49,7 +49,7 @@ export default function GlobalMessagesScreen() {
   // Usar el contador local optimizado del ChatProvider
   const localUnreadCount = getUnreadCount();
 
-  // Convertir chats activos a formato de conversaciones para la UI
+  // Convertir chats activos a formato de conversaciones para la UI (optimizado)
   const conversations: ConversationItem[] = React.useMemo(() => {
     const convArray: ConversationItem[] = [];
     
@@ -60,7 +60,17 @@ export default function GlobalMessagesScreen() {
         
         convArray.push({
           conversationId,
-          otherUser: chat.otherUser,
+          otherUser: {
+            id: chat.otherUser.id,
+            name: chat.otherUser.name,
+            profileImage: chat.otherUser.profileImage,
+            isOnline: chat.otherUser.isOnline,
+            lastSeen: chat.otherUser.lastSeen,
+            age: chat.otherUser.age,
+            gender: chat.otherUser.gender,
+            country: chat.otherUser.country,
+            countryFlag: chat.otherUser.countryFlag,
+          },
           lastMessagePreview: chat.lastMessagePreview || lastMessage?.content || 'Iniciar conversación...',
           lastActivity: chat.lastActivity,
           unreadCount: chat.unreadCount,
@@ -183,17 +193,17 @@ export default function GlobalMessagesScreen() {
   // Funciones auxiliares
   const getGenderIcon = (gender?: string) => {
     switch (gender) {
-      case 'male': return '♂';
-      case 'female': return '♀';
-      default: return '⚧';
+      case 'male': return 'male';
+      case 'female': return 'female';
+      default: return 'male-female';
     }
   };
 
-  const getGenderColor = (gender?: string) => {
+  const getGenderIconColor = (gender?: string) => {
     switch (gender) {
       case 'male': return '#4A90E2';
       case 'female': return '#E24A90';
-      default: return '#FFD700';
+      default: return '#FFFFFF';
     }
   };
 
@@ -229,7 +239,7 @@ export default function GlobalMessagesScreen() {
     }
   };
 
-  // Componente de conversación con gesto deslizable (memoizado)
+  // Componente de conversación con gesto deslizable (memoizado con comparación personalizada)
   const SwipeableConversationItem = React.memo(({ item }: { item: ConversationItem }) => {
     const translateX = useRef(new Animated.Value(0)).current;
     const opacity = useRef(new Animated.Value(1)).current;
@@ -331,29 +341,26 @@ export default function GlobalMessagesScreen() {
                 <View style={styles.visualInfoContainer}>
                   {/* Género */}
                   {item.otherUser.gender && (
-                    <View style={[styles.infoBadge, { backgroundColor: getGenderColor(item.otherUser.gender) }]}>
-                      <Text style={styles.infoBadgeText}>
-                        {getGenderIcon(item.otherUser.gender)}
-                      </Text>
-                    </View>
+                    <Ionicons 
+                      name={getGenderIcon(item.otherUser.gender) as any} 
+                      size={14} 
+                      color={getGenderIconColor(item.otherUser.gender)}
+                      style={{ marginRight: 8 }}
+                    />
                   )}
                   
                   {/* Edad */}
                   {item.otherUser.age && (
-                    <View style={styles.infoBadge}>
-                      <Text style={styles.infoBadgeText}>
-                        {item.otherUser.age}
-                      </Text>
-                    </View>
+                    <Text style={styles.ageText}>
+                      {item.otherUser.age}
+                    </Text>
                   )}
                   
                   {/* País */}
                   {(item.otherUser.countryFlag || item.otherUser.country) && (
-                    <View style={styles.countryBadge}>
-                      <Text style={styles.countryFlagText}>
-                        {item.otherUser.countryFlag || '🌍'}
-                      </Text>
-                    </View>
+                    <Text style={styles.countryFlagText}>
+                      {item.otherUser.countryFlag || '🌍'}
+                    </Text>
                   )}
                 </View>
                 
@@ -387,11 +394,34 @@ export default function GlobalMessagesScreen() {
         </Animated.View>
       </PanGestureHandler>
     );
+  }, (prevProps, nextProps) => {
+    // Función de comparación personalizada para evitar re-renders innecesarios
+    const prev = prevProps.item;
+    const next = nextProps.item;
+    
+    // Comparar solo las propiedades que afectan la visualización
+    return (
+      prev.conversationId === next.conversationId &&
+      prev.otherUser.id === next.otherUser.id &&
+      prev.otherUser.name === next.otherUser.name &&
+      prev.otherUser.profileImage === next.otherUser.profileImage &&
+      prev.otherUser.isOnline === next.otherUser.isOnline &&
+      prev.otherUser.age === next.otherUser.age &&
+      prev.otherUser.gender === next.otherUser.gender &&
+      prev.otherUser.country === next.otherUser.country &&
+      prev.otherUser.countryFlag === next.otherUser.countryFlag &&
+      prev.lastMessagePreview === next.lastMessagePreview &&
+      prev.unreadCount === next.unreadCount &&
+      prev.isTyping === next.isTyping &&
+      prev.lastActivity.getTime() === next.lastActivity.getTime()
+    );
   });
 
   const renderConversation = ({ item }: { item: ConversationItem }) => {
     return <SwipeableConversationItem item={item} />;
   };
+
+  const renderSeparator = () => <View style={styles.separator} />;
 
   if (localLoading || isGlobalLoading) {
     return (
@@ -576,6 +606,7 @@ export default function GlobalMessagesScreen() {
           data={filteredConversations}
           keyExtractor={(item) => item.conversationId}
           renderItem={renderConversation}
+          ItemSeparatorComponent={renderSeparator}
           contentContainerStyle={styles.listContainer}
           showsVerticalScrollIndicator={false}
           removeClippedSubviews={true}
@@ -587,6 +618,13 @@ export default function GlobalMessagesScreen() {
             offset: 80 * index,
             index,
           })}
+          // Optimizaciones adicionales para evitar parpadeo
+          maintainVisibleContentPosition={{
+            minIndexForVisible: 0,
+            autoscrollToTopThreshold: 100,
+          }}
+          // Mejorar la estabilidad de los elementos
+          updateCellsBatchingPeriod={50}
           refreshing={isGlobalLoading || friendsLoading}
           onRefresh={async () => {
             await Promise.all([
@@ -650,8 +688,8 @@ const styles = StyleSheet.create({
     marginRight: 0,
   },
   avatarCircle: {
-    width: 60,
-    height: 60,
+    width: 59,
+    height: 59,
     borderRadius: 16,
     backgroundColor: '#F9C80E',
     justifyContent: 'center',
@@ -673,7 +711,7 @@ const styles = StyleSheet.create({
     top: -2,
     right: -2,
     backgroundColor: '#FF3B30',
-    borderRadius: 10,
+    borderRadius: 16,
     minWidth: 20,
     height: 20,
     justifyContent: 'center',
@@ -818,7 +856,7 @@ const styles = StyleSheet.create({
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   userName: {
     fontSize: 16,
@@ -831,35 +869,16 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     marginBottom: 6,
   },
-  infoBadge: {
-    backgroundColor: '#2a2a2a',
-    borderRadius: 8,
-    width: 28,
-    height: 20,
-    marginRight: 5,
-    marginBottom: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  infoBadgeText: {
+  ageText: {
     fontSize: 12,
     fontWeight: '600',
     color: '#FFFFFF',
-  },
-  countryBadge: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 8,
-    width: 28,
-    height: 20,
-    marginRight: 5,
-    marginBottom: 2,
-    borderWidth: 1,
-    borderColor: '#333333',
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginRight: 8,
   },
   countryFlagText: {
     fontSize: 14,
+    marginRight: 8,
+    marginBottom: 2,
   },
   messageRow: {
     flexDirection: 'row',
@@ -906,5 +925,10 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontSize: 12,
     fontWeight: '600',
+  },
+  separator: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginHorizontal: 16,
   },
 });

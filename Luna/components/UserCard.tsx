@@ -52,22 +52,22 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress, onStoryPress 
   const getGenderIcon = () => {
     switch (user.gender) {
       case 'male':
-        return '♂';
+        return 'male';
       case 'female':
-        return '♀';
+        return 'female';
       default:
-        return '⚧';
+        return 'male-female';
     }
   };
 
-  const getGenderColor = () => {
+  const getGenderIconColor = () => {
     switch (user.gender) {
       case 'male':
-        return '#4A90E2';
+        return '#4A90E2'; // Azul
       case 'female':
-        return '#E24A90';
+        return '#E24A90'; // Rosa
       default:
-        return '#FFD700';
+        return '#FFFFFF'; // Blanco
     }
   };
 
@@ -150,20 +150,19 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress, onStoryPress 
           <View style={styles.visualInfoContainer}>
             {/* Género */}
             {user.gender && (
-              <View style={[styles.infoBadge, { backgroundColor: getGenderColor() }]}>
-                <Text style={styles.infoBadgeText}>
-                  {getGenderIcon()}
-                </Text>
-              </View>
+              <Ionicons 
+                name={getGenderIcon() as any} 
+                size={14} 
+                color={getGenderIconColor()}
+                style={{ marginRight: 8 }}
+              />
             )}
             
             {/* Edad */}
             {user.age && (
-              <View style={styles.infoBadge}>
-                <Text style={styles.infoBadgeText}>
-                  {user.age}
-                </Text>
-              </View>
+              <Text style={styles.ageText}>
+                {user.age}
+              </Text>
             )}
             
             {/* País */}
@@ -182,9 +181,13 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress, onStoryPress 
         {/* Online Status */}
         <View style={styles.statusContainer}>
           <View style={styles.statusTextContainer}>
-            <Text style={[styles.statusText, { color: user.isOnline ? '#4CAF50' : '#ADB5BD' }]}>
-              {user.isOnline ? 'Online' : (user.lastConnection ? getTimeAgo(user.lastConnection) : 'Offline')}
-            </Text>
+            {user.isOnline ? (
+              <Ionicons name="ellipse" size={16} color="#4CAF50" />
+            ) : (
+              <Text style={styles.statusText}>
+                {user.lastConnection ? getTimeAgo(user.lastConnection) : 'Offline'}
+              </Text>
+            )}
           </View>
         </View>
       </View>
@@ -257,6 +260,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  ageText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginRight: 8,
   },
   countryFlagText: {
     fontSize: 14,

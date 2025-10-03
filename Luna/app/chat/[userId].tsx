@@ -5,6 +5,7 @@ import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, withTi
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatProvider';
 import { ChatMessage } from '@/services/optimizedChatService';
@@ -38,6 +39,11 @@ const GlobalChatScreen = React.memo(() => {
     currentChatId,
     activeChats
   } = useChat();
+  
+  // Obtener los insets del dispositivo para detectar tipo de navegación
+  // En Android: insets.bottom será mayor (~40-50px) con navegación por gestos
+  // y menor (~0-10px) con botones de navegación tradicionales
+  const insets = useSafeAreaInsets();
   
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -967,7 +973,14 @@ const GlobalChatScreen = React.memo(() => {
 
         {/* Input de respuesta */}
         {replyingTo && (
-          <View style={styles.replyContainer}>
+          <View style={[
+            styles.replyContainer,
+            { 
+              paddingBottom: Platform.OS === 'android' 
+                ? Math.max(16, (insets.bottom + 8) / 2) 
+                : 12 
+            }
+          ]}>
             <View style={styles.replyContent}>
               <View style={styles.replyHeader}>
                 <Text style={styles.replyLabel}>Respondiendo a:</Text>
@@ -983,7 +996,14 @@ const GlobalChatScreen = React.memo(() => {
         )}
         
         {isUploadingImage && (
-          <View style={styles.uploadingContainer}>
+          <View style={[
+            styles.uploadingContainer,
+            { 
+              paddingBottom: Platform.OS === 'android' 
+                ? Math.max(16, (insets.bottom + 8) / 2) 
+                : 12 
+            }
+          ]}>
             <ActivityIndicator size="small" color="#F9C80E" />
             <Text style={styles.uploadingMessageText}>Subiendo imagen...</Text>
             <TouchableOpacity 
@@ -998,7 +1018,14 @@ const GlobalChatScreen = React.memo(() => {
           </View>
         )}
         
-        <View style={styles.inputBar}>
+        <View style={[
+          styles.inputBar,
+          { 
+            paddingBottom: Platform.OS === 'android' 
+              ? Math.max(24, insets.bottom + 8) // Mayor separación: mínimo 24px o inset + 8px adicionales
+              : 16 // En iOS, el KeyboardAvoidingView ya maneja esto
+          }
+        ]}>
           <TouchableOpacity 
             onPress={pickImage} 
             disabled={isUploadingImage}
@@ -1257,7 +1284,8 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#2F2F2F',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
+    // paddingBottom se aplica dinámicamente
   },
   replyContent: {
     backgroundColor: '#2F2F2F',
@@ -1285,7 +1313,9 @@ const styles = StyleSheet.create({
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    // paddingBottom se aplica dinámicamente basado en el tipo de navegación
     backgroundColor: '#1A1A1A',
     borderTopWidth: 1,
     borderTopColor: '#1A1A1A',
@@ -1351,8 +1381,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingTop: 12,
     paddingHorizontal: 16,
+    // paddingBottom se aplica dinámicamente
     backgroundColor: '#1A1A1A',
     borderTopWidth: 1,
     borderTopColor: '#2F2F2F',
