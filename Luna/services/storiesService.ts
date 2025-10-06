@@ -18,6 +18,7 @@ export interface Story {
   content: {
     type: 'image' | 'text';
     data: string;
+    description?: string;
   };
   location?: string;
   createdAt: string;
@@ -36,6 +37,7 @@ export interface CreateStoryData {
   content: {
     type: 'image' | 'text';
     data: string;
+    description?: string;
   };
   location?: string;
 }

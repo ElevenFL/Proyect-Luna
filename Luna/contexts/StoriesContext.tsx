@@ -7,7 +7,7 @@ interface StoriesContextType {
   stories: Story[];
   userStories: Story[];
   isLoading: boolean;
-  addStory: (content: { type: 'image' | 'text'; data: string }, location?: string) => Promise<void>;
+  addStory: (content: { type: 'image' | 'text'; data: string; description?: string }, location?: string) => Promise<void>;
   markStoryAsViewed: (storyId: string) => void;
   refreshStories: () => Promise<void>;
   getStoriesByUser: (userId: string) => Story[];
@@ -135,7 +135,7 @@ export const StoriesProvider: React.FC<StoriesProviderProps> = ({ children }) =>
     }
   };
 
-  const addStory = async (content: { type: 'image' | 'text'; data: string }, location?: string) => {
+  const addStory = async (content: { type: 'image' | 'text'; data: string; description?: string }, location?: string) => {
     if (!user) throw new Error('Usuario no autenticado');
 
     try {

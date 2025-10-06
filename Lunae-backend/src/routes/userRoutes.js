@@ -565,21 +565,37 @@ router.get("/home", auth, async (req, res) => {
     let prefetchingEnabled = false;
     let allFriendRequests = [];
     let conversations = [];
+    let storiesMap = new Map();
     let prefetchingError = null;
 
     try {
       console.log('🔄 Intentando prefetching...');
-      const [friendRequestsResult, conversationsResult] = await Promise.allSettled([
+      
+      // Importar modelo de Stories dinámicamente
+      const { Story } = await import('../models/Stories.js');
+      
+      const [friendRequestsResult, conversationsResult, storiesResult] = await Promise.allSettled([
         FriendRequest.findAll(),
-        Chat.listUserConversations(currentUserId)
+        Chat.listUserConversations(currentUserId),
+        Story.findActiveStories()
       ]);
 
       allFriendRequests = friendRequestsResult.status === 'fulfilled' ? friendRequestsResult.value : [];
       conversations = conversationsResult.status === 'fulfilled' ? conversationsResult.value.items : [];
+      const activeStories = storiesResult.status === 'fulfilled' ? storiesResult.value : [];
       
       console.log('📊 Prefetching resultados:');
       console.log('  - FriendRequests:', allFriendRequests.length);
       console.log('  - Conversations:', conversations.length);
+      console.log('  - Active Stories:', activeStories.length);
+      
+      // Crear mapa de historias por usuario para búsqueda rápida
+      activeStories.forEach(story => {
+        if (!storiesMap.has(story.userId)) {
+          storiesMap.set(story.userId, []);
+        }
+        storiesMap.get(story.userId).push(story);
+      });
       
       prefetchingEnabled = true;
       console.log('✅ Prefetching habilitado exitosamente');
@@ -587,6 +603,7 @@ router.get("/home", auth, async (req, res) => {
       console.warn('⚠️ Error en prefetching, continuando sin él:', prefetchError.message);
       prefetchingEnabled = false;
       prefetchingError = prefetchError.message;
+      storiesMap = new Map();
     }
 
     // Crear mapas para búsqueda rápida si el prefetching está habilitado
@@ -662,6 +679,13 @@ router.get("/home", auth, async (req, res) => {
             console.warn(`⚠️ Error en prefetching para usuario ${user.id}:`, prefetchError.message);
           }
 
+          // Obtener información de historias del usuario
+          const userStories = storiesMap.get(user.id) || [];
+          const hasActiveStories = userStories.length > 0;
+          const hasUnviewedStories = userStories.some(story => 
+            !story.viewedBy || !story.viewedBy.includes(currentUserId)
+          );
+
           return {
             ...baseUser,
             prefetchData: {
@@ -678,6 +702,11 @@ router.get("/home", auth, async (req, res) => {
               like: {
                 hasGivenLike: hasGivenLike,
                 isMatch: isMatch
+              },
+              stories: {
+                hasActiveStories: hasActiveStories,
+                storiesCount: userStories.length,
+                hasUnviewedStories: hasUnviewedStories
               }
             }
           };

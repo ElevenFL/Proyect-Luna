@@ -15,6 +15,11 @@ interface PrefetchData {
     hasGivenLike: boolean;
     isMatch: boolean;
   };
+  stories: {
+    hasActiveStories: boolean;
+    storiesCount: number;
+    hasUnviewedStories: boolean;
+  };
 }
 
 interface UserWithPrefetch {
@@ -58,9 +63,6 @@ export const PrefetchProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const getPrefetchedUser = (userId: string): UserWithPrefetch | null => {
     const user = prefetchedUsers.get(userId);
-    if (user && __DEV__) {
-      console.log(`📦 PrefetchContext: Datos prefetchados encontrados para usuario ${userId}`);
-    }
     return user || null;
   };
 

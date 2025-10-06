@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   Dimensions,
   Alert,
+  Modal,
+  StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Story } from '@/services/storiesService';
@@ -34,6 +36,7 @@ export default function StoryPost({
   const [likesCount, setLikesCount] = useState(story.stats.likes);
   const [isLoading, setIsLoading] = useState(false);
   const [showCommentsModal, setShowCommentsModal] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
 
   const handleLike = async () => {
     if (isLoading) return;
@@ -66,6 +69,12 @@ export default function StoryPost({
 
   const handleShare = () => {
     onShare?.(story.id);
+  };
+
+  const handleImagePress = () => {
+    if (story.content.type === 'image') {
+      setShowImageModal(true);
+    }
   };
 
   const formatTimeAgo = (dateString: string) => {
@@ -117,10 +126,15 @@ export default function StoryPost({
             )}
           </View>
           <View style={styles.userDetails}>
-            <Text style={styles.userName}>{story.userName}</Text>
-            <Text style={styles.timeAgo}>
-              Última vez visto {formatTimeAgo(story.createdAt)}
-            </Text>
+            <View style={styles.nameAndTimeRow}>
+              <Text style={styles.userName}>{story.userName}</Text>
+              <Text style={styles.timeAgo}>
+                {formatTimeAgo(story.createdAt)}
+              </Text>
+            </View>
+            {story.content.type === 'image' && story.content.description && (
+              <Text style={styles.descriptionText}>{story.content.description}</Text>
+            )}
           </View>
         </View>
       </View>
@@ -128,11 +142,13 @@ export default function StoryPost({
       {/* Contenido de la historia */}
       <View style={styles.content}>
         {story.content.type === 'image' ? (
-          <Image 
-            source={{ uri: story.content.data }} 
-            style={styles.storyImage}
-            resizeMode="cover"
-          />
+          <TouchableOpacity onPress={handleImagePress} activeOpacity={0.9}>
+            <Image 
+              source={{ uri: story.content.data }} 
+              style={styles.storyImage}
+              resizeMode="cover"
+            />
+          </TouchableOpacity>
         ) : (
           <View style={styles.textContent}>
             <Text style={styles.storyText}>{story.content.data}</Text>
@@ -181,6 +197,33 @@ export default function StoryPost({
         story={story}
         onClose={() => setShowCommentsModal(false)}
       />
+
+      {/* Modal de Imagen Completa */}
+      <Modal
+        visible={showImageModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowImageModal(false)}
+      >
+        <View style={styles.imageModalContainer}>
+          <StatusBar barStyle="light-content" backgroundColor="rgba(0,0,0,0.9)" />
+          <TouchableOpacity 
+            style={styles.imageModalCloseButton}
+            onPress={() => setShowImageModal(false)}
+          >
+            <Ionicons name="close" size={30} color="#FFFFFF" />
+          </TouchableOpacity>
+          <View style={styles.imageModalContent}>
+            <View style={styles.imageWrapper}>
+              <Image 
+                source={{ uri: story.content.data }} 
+                style={styles.fullScreenImage}
+                resizeMode="cover"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -188,7 +231,7 @@ export default function StoryPost({
 const styles = StyleSheet.create({
   container: {
     backgroundColor: '#1a1a1a',
-    marginBottom: 20,
+    marginBottom: 16,
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -196,7 +239,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
+    padding: 6,
   },
   userInfo: {
     flexDirection: 'row',
@@ -205,7 +248,7 @@ const styles = StyleSheet.create({
   },
   profileImageContainer: {
     marginRight: 12,
-    marginLeft: -10,
+    marginLeft: -5,
   },
   profileImage: {
     width: 40,
@@ -225,23 +268,36 @@ const styles = StyleSheet.create({
   userDetails: {
     flex: 1,
   },
+  nameAndTimeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   userName: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 2,
+    flex: 1,
   },
   timeAgo: {
     color: '#CCCCCC',
     fontSize: 12,
+    marginLeft: 8,
+  },
+  descriptionText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'left',
+    marginTop: 4,
   },
   content: {
     width: '100%',
+    backgroundColor: '#1a1a1a',
   },
   storyImage: {
     width: '100%',
     height: screenWidth * 0.8, // Aspecto cuadrado
-    backgroundColor: '#2a2a2a',
     borderRadius: 16,
   },
   textContent: {
@@ -283,5 +339,40 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 6,
     fontWeight: '500',
+  },
+  imageModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageModalCloseButton: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    zIndex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 16,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageModalContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 20,
+  },
+  imageWrapper: {
+    width: screenWidth - 20,
+    height: screenWidth - 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  fullScreenImage: {
+    width: '100%',
+    height: '100%',
   },
 });

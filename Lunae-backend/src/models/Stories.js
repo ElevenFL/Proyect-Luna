@@ -21,7 +21,7 @@ export class Story {
       this.userId = data.userId;
       this.userName = data.userName;
       this.userProfileImage = data.userProfileImage;
-      this.content = data.content || {}; // { type: 'image'|'text', data: string }
+      this.content = data.content || {}; // { type: 'image'|'text', data: string, description?: string }
       this.location = data.location;
       this.createdAt = data.createdAt || new Date().toISOString();
       this.expiresAt = data.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 horas

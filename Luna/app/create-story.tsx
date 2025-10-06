@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,10 +12,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Keyboard,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { useAuth } from '@/contexts/AuthContext';
 import { useStories } from '@/contexts/StoriesContext';
 import { ImageService } from '@/services/imageService';
@@ -24,11 +27,92 @@ import { API_CONFIG } from '@/config/api';
 export default function CreateStoryScreen() {
   const { user } = useAuth();
   const { addStory } = useStories();
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [permission, requestPermission] = useCameraPermissions();
+  const [facing, setFacing] = useState<CameraType>('back');
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [storyText, setStoryText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showCamera, setShowCamera] = useState(true);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const cameraRef = useRef<CameraView>(null);
 
-  const pickImage = async () => {
+  useEffect(() => {
+    if (!permission) {
+      requestPermission();
+    }
+
+    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+    
+    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      keyboardDidShowListener?.remove();
+      keyboardDidHideListener?.remove();
+    };
+  }, []);
+
+  const takePicture = async () => {
+    if (cameraRef.current) {
+      try {
+        const photo = await cameraRef.current.takePictureAsync({
+          quality: 0.8,
+          base64: false,
+          skipProcessing: false,
+        });
+
+        // Recortar la imagen al formato 9:16
+        const aspectRatio = 9 / 16; // Formato 9:16
+        let cropWidth = photo.width;
+        let cropHeight = photo.width / aspectRatio; // 9:16 = width/height
+        
+        // Si la altura calculada excede la imagen original, ajustar basándose en la altura
+        if (cropHeight > photo.height) {
+          cropHeight = photo.height;
+          cropWidth = photo.height * aspectRatio;
+        }
+        
+        // Centrar el recorte
+        const originX = Math.max(0, (photo.width - cropWidth) / 2);
+        const originY = Math.max(0, (photo.height - cropHeight) / 2);
+        
+        const croppedImage = await ImageManipulator.manipulateAsync(
+          photo.uri,
+          [
+            {
+              crop: {
+                originX: Math.floor(originX),
+                originY: Math.floor(originY),
+                width: Math.floor(cropWidth),
+                height: Math.floor(cropHeight),
+              },
+            },
+            {
+              resize: {
+                width: 900,
+                height: 1600,
+              },
+            },
+          ],
+          {
+            compress: 0.8,
+            format: ImageManipulator.SaveFormat.JPEG,
+          }
+        );
+
+        setCapturedImage(croppedImage.uri);
+        setShowCamera(false);
+      } catch (error) {
+        console.error('Error tomando foto:', error);
+        Alert.alert('Error', 'No se pudo tomar la foto');
+      }
+    }
+  };
+
+  const pickFromGallery = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -38,7 +122,8 @@ export default function CreateStoryScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        setSelectedImage(result.assets[0].uri);
+        setCapturedImage(result.assets[0].uri);
+        setShowCamera(false);
       }
     } catch (error) {
       console.error('Error seleccionando imagen:', error);
@@ -46,50 +131,30 @@ export default function CreateStoryScreen() {
     }
   };
 
-  const takePhoto = async () => {
-    try {
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        aspect: [9, 16],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        setSelectedImage(result.assets[0].uri);
-      }
-    } catch (error) {
-      console.error('Error tomando foto:', error);
-      Alert.alert('Error', 'No se pudo tomar la foto');
-    }
+  const toggleCameraFacing = () => {
+    setFacing((current: CameraType) => (current === 'back' ? 'front' : 'back'));
   };
 
-  const showImageOptions = () => {
-    Alert.alert(
-      'Seleccionar imagen',
-      '¿Cómo quieres agregar una imagen?',
-      [
-        { text: 'Cámara', onPress: takePhoto },
-        { text: 'Galería', onPress: pickImage },
-        { text: 'Cancelar', style: 'cancel' },
-      ]
-    );
+  const retakePhoto = () => {
+    setCapturedImage(null);
+    setShowCamera(true);
   };
 
   const publishStory = async () => {
-    if (!selectedImage && !storyText.trim()) {
-      Alert.alert('Error', 'Debes agregar una imagen o escribir un texto');
+    if (!capturedImage && !storyText.trim()) {
+      Alert.alert('Error', 'Debes tomar o seleccionar una imagen');
       return;
     }
 
     setIsLoading(true);
     try {
-      let content: { type: 'image' | 'text'; data: string };
+      let content: { type: 'image' | 'text'; data: string; description?: string };
 
-      if (selectedImage) {
+      if (capturedImage) {
         // Subir imagen a S3 antes de crear el story
         console.log('Subiendo imagen a S3...');
         const imageUrl = await ImageService.uploadOptimizedImage(
-          selectedImage,
+          capturedImage,
           API_CONFIG.IMAGE.FOLDERS.STORIES,
           {
             maxWidth: 800,
@@ -100,7 +165,17 @@ export default function CreateStoryScreen() {
         );
         
         console.log('Imagen subida exitosamente:', imageUrl);
-        content = { type: 'image' as const, data: imageUrl };
+        
+        // Si hay descripción, incluirla en el contenido
+        if (storyText.trim()) {
+          content = { 
+            type: 'image' as const, 
+            data: imageUrl,
+            description: storyText.trim()
+          };
+        } else {
+          content = { type: 'image' as const, data: imageUrl };
+        }
       } else {
         content = { type: 'text' as const, data: storyText.trim() };
       }
@@ -108,16 +183,8 @@ export default function CreateStoryScreen() {
       // Crear el story usando el contexto
       await addStory(content);
       
-      Alert.alert(
-        '¡Story publicado!',
-        'Tu story ha sido publicado exitosamente',
-        [
-          {
-            text: 'OK',
-            onPress: () => router.back(),
-          },
-        ]
-      );
+      // Regresar a la pantalla anterior sin mostrar alert
+      router.back();
     } catch (error) {
       console.error('Error publicando story:', error);
       
@@ -142,63 +209,125 @@ export default function CreateStoryScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="close" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-        
-        <Text style={styles.headerTitle}>Crear Story</Text>
-        
-        <TouchableOpacity
-          style={[styles.headerButton, styles.publishButton]}
-          onPress={publishStory}
-          disabled={isLoading || (!selectedImage && !storyText.trim())}
-        >
-          <Text style={styles.publishText}>
-            {isLoading ? 'Publicando...' : 'Publicar'}
-          </Text>
-        </TouchableOpacity>
-      </View>
 
-      <KeyboardAvoidingView
-        style={styles.content}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          {/* Área de imagen */}
-          <View style={styles.imageSection}>
-            {selectedImage ? (
-              <View style={styles.imageContainer}>
-                <Image source={{ uri: selectedImage }} style={styles.storyImage} />
+      <View style={styles.content}>
+          {showCamera ? (
+            // Vista de cámara
+            <View style={styles.cameraContainer}>
+              <CameraView
+                ref={cameraRef}
+                style={styles.camera}
+                facing={facing}
+                mode="picture"
+              >
+                {/* Overlay de la cámara */}
+                <View style={styles.cameraOverlay}>
+                  {/* Botones superiores */}
+                  <View style={styles.cameraTopControls}>
+                    <TouchableOpacity
+                      style={styles.floatingCloseButton}
+                      onPress={() => router.back()}
+                    >
+                      <Ionicons name="close" size={24} color="#FFFFFF" />
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[styles.floatingPublishButton, (!capturedImage && !storyText.trim()) && styles.disabledButton]}
+                      onPress={publishStory}
+                      disabled={isLoading || (!capturedImage && !storyText.trim())}
+                    >
+                      <Text style={styles.floatingPublishText}>
+                        {isLoading ? 'Publicando...' : 'Publicar'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Controles inferiores */}
+                  <View style={styles.cameraBottomControls}>
+                    {/* Espaciador */}
+                    <View style={styles.spacer} />
+                  </View>
+                </View>
+              </CameraView>
+            </View>
+          ) : (
+            // Vista de preview de imagen capturada
+            <View style={styles.previewContainer}>
+              <Image source={{ uri: capturedImage! }} style={styles.previewImage} />
+              
+              {/* Botones flotantes superiores */}
+              <View style={styles.previewTopControls}>
                 <TouchableOpacity
-                  style={styles.removeImageButton}
-                  onPress={() => setSelectedImage(null)}
+                  style={styles.floatingCloseButton}
+                  onPress={() => router.back()}
                 >
-                  <Ionicons name="close-circle" size={24} color="#FF3B30" />
+                  <Ionicons name="close" size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={styles.floatingPublishButton}
+                  onPress={publishStory}
+                  disabled={isLoading}
+                >
+                  <Text style={styles.floatingPublishText}>
+                    {isLoading ? 'Publicando...' : 'Publicar'}
+                  </Text>
                 </TouchableOpacity>
               </View>
-            ) : (
+              
+              {/* Controles de preview */}
+              <View style={styles.previewControls}>
+                <TouchableOpacity
+                  style={styles.retakeButton}
+                  onPress={retakePhoto}
+                >
+                  <Ionicons name="camera" size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Botón de captura flotante */}
+          {showCamera && (
+            <View style={styles.floatingCaptureContainer}>
               <TouchableOpacity
-                style={styles.addImageButton}
-                onPress={showImageOptions}
+                style={styles.floatingCaptureButton}
+                onPress={takePicture}
               >
-                <Ionicons name="camera" size={40} color="#F9C80E" />
-                <Text style={styles.addImageText}>Agregar imagen</Text>
-                <Text style={styles.addImageSubtext}>Toca para seleccionar o tomar una foto</Text>
+                <View style={styles.floatingCaptureButtonInner} />
               </TouchableOpacity>
-            )}
+            </View>
+          )}
+
+          {/* Botón de galería flotante */}
+          <View style={styles.floatingGalleryContainer}>
+            <TouchableOpacity
+              style={styles.floatingGalleryButton}
+              onPress={pickFromGallery}
+            >
+              <Ionicons name="images" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
           </View>
 
-          {/* Área de texto */}
-          <View style={styles.textSection}>
-            <Text style={styles.sectionTitle}>Texto del Story</Text>
+          {/* Botón de cambio de cámara flotante */}
+          {showCamera && (
+            <View style={styles.floatingCameraToggleContainer}>
+              <TouchableOpacity
+                style={styles.floatingCameraToggleButton}
+                onPress={toggleCameraFacing}
+              >
+                <Ionicons name="camera-reverse" size={24} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Área de descripción */}
+          <View style={[
+            styles.descriptionSection,
+            { bottom: keyboardHeight > 0 ? keyboardHeight + 10 : 10 }
+          ]}>
             <TextInput
-              style={styles.textInput}
+              style={styles.descriptionInput}
               placeholder="¿Qué está pasando?"
               placeholderTextColor="#888888"
               value={storyText}
@@ -211,9 +340,7 @@ export default function CreateStoryScreen() {
               {storyText.length}/200
             </Text>
           </View>
-
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -221,88 +348,200 @@ export default function CreateStoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#000000',
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  content: {
+    flex: 1,
+  },
+  cameraContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  camera: {
+    flex: 1,
+  },
+  cameraOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingTop: 50,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333333',
   },
-  headerButton: {
-    padding: 8,
+  cameraTopControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    paddingTop: 60,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FFFFFF',
+  previewTopControls: {
+    position: 'absolute',
+    top: 60,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
   },
-  publishButton: {
+  floatingCloseButton: {
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
+    padding: 12,
+  },
+  floatingPublishButton: {
     backgroundColor: '#F9C80E',
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
-  publishText: {
+  disabledButton: {
+    backgroundColor: 'rgba(249, 200, 14, 0.5)',
+  },
+  floatingPublishText: {
     color: '#000000',
     fontSize: 14,
     fontWeight: '600',
   },
-  content: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    paddingTop: 20,
-  },
-  imageSection: {
-    marginBottom: 24,
-  },
-  imageContainer: {
-    position: 'relative',
-    alignItems: 'center',
-  },
-  storyImage: {
-    width: '100%',
-    height: 500,
-    borderRadius: 16,
-    backgroundColor: '#2a2a2a',
-  },
-  removeImageButton: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
+  controlButton: {
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 12,
+    borderRadius: 20,
+    padding: 12,
   },
-  addImageButton: {
-    height: 350,
-    borderWidth: 2,
-    borderColor: '#F9C80E',
-    borderStyle: 'dashed',
-    borderRadius: 16,
-    justifyContent: 'center',
+  cameraBottomControls: {
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2a2a2a',
+    justifyContent: 'space-between',
+    padding: 20,
+    paddingBottom: 40,
   },
-  addImageText: {
-    color: '#F9C80E',
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 12,
+  galleryButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 16,
+    padding: 12,
   },
-  addImageSubtext: {
-    color: '#888888',
+  galleryText: {
+    color: '#FFFFFF',
     fontSize: 12,
     marginTop: 4,
-    textAlign: 'center',
   },
-  textSection: {
-    marginBottom: 24,
+  captureButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 4,
+    borderColor: '#F9C80E',
+  },
+  captureButtonInner: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#F9C80E',
+  },
+  spacer: {
+    width: 80,
+  },
+  previewContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  previewControls: {
+    position: 'absolute',
+    bottom: 160,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  retakeButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: 16,
+    padding: 12,
+    width: 50,
+    height: 50,
+  },
+  floatingCaptureContainer: {
+    position: 'absolute',
+    bottom: 160,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  floatingCaptureButton: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 4,
+    borderColor: '#F9C80E',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  floatingCaptureButtonInner: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#F9C80E',
+  },
+  floatingGalleryContainer: {
+    position: 'absolute',
+    bottom: 160,
+    left: 20,
+    alignItems: 'center',
+  },
+  floatingGalleryButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: 16,
+    padding: 12,
+    width: 50,
+    height: 50,
+  },
+  floatingCameraToggleContainer: {
+    position: 'absolute',
+    bottom: 160,
+    right: 20,
+    alignItems: 'center',
+  },
+  floatingCameraToggleButton: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: 16,
+    padding: 12,
+    width: 50,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  descriptionSection: {
+    position: 'absolute',
+    bottom: 15,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(26, 26, 26, 0)',
+    padding: 16,
+    marginHorizontal: 16,
+    borderRadius: 12,
   },
   sectionTitle: {
     fontSize: 16,
@@ -310,13 +549,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginBottom: 12,
   },
-  textInput: {
-    backgroundColor: '#2a2a2a',
+  descriptionInput: {
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     borderRadius: 12,
     padding: 16,
     color: '#FFFFFF',
     fontSize: 16,
-    minHeight: 100,
+    minHeight: 80,
     borderWidth: 1,
     borderColor: '#333333',
   },

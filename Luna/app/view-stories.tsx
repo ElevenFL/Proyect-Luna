@@ -25,7 +25,6 @@ export default function ViewStoriesScreen() {
   const [currentUserIndex, setCurrentUserIndex] = useState(0);
   const [isNavigating, setIsNavigating] = useState(false);
   const [isUnmounting, setIsUnmounting] = useState(false);
-  const [isTransitioning, setIsTransitioning] = useState(false);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const animationRef = useRef<Animated.CompositeAnimation | null>(null);
 
@@ -42,6 +41,23 @@ export default function ViewStoriesScreen() {
   }, {} as Record<string, typeof stories>);
 
   const usersWithStories = Object.keys(storiesByUser);
+
+  // Debug logs para diagnosticar el problema
+  useEffect(() => {
+    console.log('🔍 ViewStories Debug:');
+    console.log(`  - Total stories cargadas: ${stories.length}`);
+    console.log(`  - Stories de amigos (sin usuario actual): ${friendsStories.length}`);
+    console.log(`  - Usuarios con stories: ${usersWithStories.length}`);
+    console.log(`  - storiesByUser:`, Object.keys(storiesByUser).map(userId => ({
+      userId,
+      storiesCount: storiesByUser[userId]?.length || 0
+    })));
+    
+    if (usersWithStories.length > 0) {
+      const firstUserStories = storiesByUser[usersWithStories[0]];
+      console.log(`  - Primer usuario (${usersWithStories[0]}) tiene ${firstUserStories?.length || 0} stories`);
+    }
+  }, [stories.length, friendsStories.length, usersWithStories.length]);
 
   const handleNavigation = useCallback(() => {
     if (!isNavigating && !isUnmounting) {
@@ -81,9 +97,7 @@ export default function ViewStoriesScreen() {
   }, [isNavigating, isUnmounting, progressAnim, from]);
 
   const nextStory = useCallback(() => {
-    if (usersWithStories.length === 0 || isNavigating || isUnmounting || isTransitioning) return;
-
-    setIsTransitioning(true);
+    if (usersWithStories.length === 0 || isNavigating || isUnmounting) return;
 
     // Detener cualquier animación en progreso antes de cambiar
     if (animationRef.current) {
@@ -94,37 +108,52 @@ export default function ViewStoriesScreen() {
 
     const currentUserStories = storiesByUser[usersWithStories[currentUserIndex]];
     
+    console.log(`🔄 NextStory Debug:`);
+    console.log(`  - currentUserIndex: ${currentUserIndex}/${usersWithStories.length - 1}`);
+    console.log(`  - currentStoryIndex: ${currentStoryIndex}/${currentUserStories?.length - 1 || 0}`);
+    
+    // Si hay más stories del usuario actual
     if (currentStoryIndex < currentUserStories.length - 1) {
-      if (!isUnmounting) {
-        setCurrentStoryIndex(currentStoryIndex + 1);
-      }
-    } else if (currentUserIndex < usersWithStories.length - 1) {
-      if (!isUnmounting) {
-        setCurrentUserIndex(currentUserIndex + 1);
-        setCurrentStoryIndex(0);
-      }
-    } else {
-      // Fin de todos los stories
+      console.log(`  - Avanzando al siguiente story del mismo usuario`);
+      setCurrentStoryIndex(currentStoryIndex + 1);
+    } 
+    // Si hay más usuarios con stories
+    else if (currentUserIndex < usersWithStories.length - 1) {
+      console.log(`  - Avanzando al siguiente usuario`);
+      setCurrentUserIndex(currentUserIndex + 1);
+      setCurrentStoryIndex(0);
+    } 
+    // Fin de todos los stories
+    else {
+      console.log(`  - Fin de todos los stories, navegando de vuelta`);
       handleNavigation();
     }
-
-    // Resetear el estado de transición después de un breve delay
-    setTimeout(() => {
-      setIsTransitioning(false);
-    }, 100);
-  }, [currentStoryIndex, currentUserIndex, usersWithStories, storiesByUser, isNavigating, isUnmounting, isTransitioning, handleNavigation, progressAnim]);
+  }, [currentUserIndex, currentStoryIndex, usersWithStories, storiesByUser, isNavigating, isUnmounting, handleNavigation, progressAnim]);
 
   useEffect(() => {
-    if (isNavigating || isUnmounting || isTransitioning) return; // Evitar actualizaciones durante navegación, desmontaje o transición
+    if (isNavigating || isUnmounting) return;
+    
+    console.log(`🎬 Story Animation Debug:`);
+    console.log(`  - usersWithStories.length: ${usersWithStories.length}`);
+    console.log(`  - currentUserIndex: ${currentUserIndex}`);
+    console.log(`  - currentStoryIndex: ${currentStoryIndex}`);
     
     if (usersWithStories.length > 0 && currentUserIndex < usersWithStories.length) {
       const currentUserStories = storiesByUser[usersWithStories[currentUserIndex]];
-      if (currentStoryIndex < currentUserStories.length) {
+      console.log(`  - currentUserStories.length: ${currentUserStories?.length || 0}`);
+      
+      if (currentUserStories && currentStoryIndex < currentUserStories.length) {
         const currentStory = currentUserStories[currentStoryIndex];
+        console.log(`  - Iniciando animación para story: ${currentStory.id} (${currentStory.userName})`);
         
-        // Marcar como visto
+        // Marcar como visto usando setTimeout para evitar actualizaciones durante renderizado
         if (!currentStory.isViewed && !isUnmounting) {
-          markStoryAsViewed(currentStory.id);
+          console.log(`  - Marcando story como visto: ${currentStory.id}`);
+          setTimeout(() => {
+            if (!isUnmounting) {
+              markStoryAsViewed(currentStory.id);
+            }
+          }, 0);
         }
 
         // Limpiar animación anterior si existe
@@ -143,14 +172,14 @@ export default function ViewStoriesScreen() {
         
         animationRef.current = animation;
         
-        animation.start(() => {
-          if (!isNavigating && !isUnmounting && !isTransitioning) {
+        animation.start(({ finished }) => {
+          if (finished && !isNavigating && !isUnmounting) {
             nextStory();
           }
         });
       }
     }
-  }, [currentUserIndex, currentStoryIndex, isNavigating, isUnmounting, isTransitioning, usersWithStories, storiesByUser, markStoryAsViewed, progressAnim, nextStory]);
+  }, [currentUserIndex, currentStoryIndex, isNavigating, isUnmounting, usersWithStories.length, nextStory]);
 
   // Cleanup effect para evitar warnings
   useEffect(() => {
@@ -166,9 +195,7 @@ export default function ViewStoriesScreen() {
   }, [progressAnim]);
 
   const previousStory = useCallback(() => {
-    if (isNavigating || isUnmounting || isTransitioning) return;
-    
-    setIsTransitioning(true);
+    if (isNavigating || isUnmounting) return;
     
     // Detener cualquier animación en progreso antes de cambiar
     if (animationRef.current) {
@@ -177,23 +204,27 @@ export default function ViewStoriesScreen() {
     }
     progressAnim.stopAnimation();
     
+    console.log(`⬅️ PreviousStory Debug:`);
+    console.log(`  - currentUserIndex: ${currentUserIndex}/${usersWithStories.length - 1}`);
+    console.log(`  - currentStoryIndex: ${currentStoryIndex}`);
+    
+    // Si hay stories anteriores del usuario actual
     if (currentStoryIndex > 0) {
-      if (!isUnmounting) {
-        setCurrentStoryIndex(currentStoryIndex - 1);
-      }
-    } else if (currentUserIndex > 0) {
-      if (!isUnmounting) {
-        setCurrentUserIndex(currentUserIndex - 1);
-        const previousUserStories = storiesByUser[usersWithStories[currentUserIndex - 1]];
-        setCurrentStoryIndex(previousUserStories.length - 1);
-      }
+      console.log(`  - Retrocediendo al story anterior del mismo usuario`);
+      setCurrentStoryIndex(currentStoryIndex - 1);
+    } 
+    // Si hay usuarios anteriores
+    else if (currentUserIndex > 0) {
+      console.log(`  - Retrocediendo al usuario anterior`);
+      const previousUserStories = storiesByUser[usersWithStories[currentUserIndex - 1]];
+      setCurrentUserIndex(currentUserIndex - 1);
+      setCurrentStoryIndex(previousUserStories.length - 1);
     }
-
-    // Resetear el estado de transición después de un breve delay
-    setTimeout(() => {
-      setIsTransitioning(false);
-    }, 100);
-  }, [currentStoryIndex, currentUserIndex, usersWithStories, storiesByUser, isNavigating, isUnmounting, isTransitioning, progressAnim]);
+    // Ya estamos en el primer story
+    else {
+      console.log(`  - Ya estamos en el primer story`);
+    }
+  }, [currentUserIndex, currentStoryIndex, usersWithStories, storiesByUser, isNavigating, isUnmounting, progressAnim]);
 
   if (usersWithStories.length === 0) {
     return (
@@ -361,6 +392,8 @@ const styles = StyleSheet.create({
     right: 16,
     flexDirection: 'row',
     gap: 4,
+    zIndex: 10,
+    elevation: 10,
   },
   progressBarBackground: {
     flex: 1,
@@ -381,6 +414,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    zIndex: 10,
+    elevation: 10,
   },
   userInfo: {
     flexDirection: 'row',
@@ -418,6 +453,8 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     padding: 8,
+    zIndex: 11,
+    elevation: 11,
   },
   touchAreas: {
     position: 'absolute',
@@ -426,6 +463,8 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     flexDirection: 'row',
+    zIndex: 1,
+    elevation: 1,
   },
   leftTouchArea: {
     flex: 1,

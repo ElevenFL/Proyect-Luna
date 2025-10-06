@@ -6,6 +6,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect } from 'react';
 import { Platform, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -14,7 +15,7 @@ import { ConversationProvider } from '@/contexts/ConversationContext';
 import { ChatProvider } from '@/contexts/ChatProvider';
 import { PrefetchProvider } from '@/contexts/PrefetchContext';
 import { StoriesProvider } from '@/contexts/StoriesContext';
-import SafeAlert from '@/components/SafeAlert';
+import { SafeAlert } from '@/components/SafeAlert';
 import { AppInitializer } from '@/components/AppInitializer';
 import { Colors } from '@/constants/Colors';
 import '@/config/amplify'; // Inicializar Amplify
@@ -62,39 +63,41 @@ export default function RootLayout() {
   }
 
   return (
-    <AppInitializer>
-      <AuthProvider>
-        <PrefetchProvider>
-          <ConversationProvider>
-            <ChatProvider>
-              <StoriesProvider>
-                <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-                <Stack
-                  screenOptions={{
-                    headerShown: false,
-                  }}
-                >
-                  <Stack.Screen name="(auth)" />
-                  <Stack.Screen name="onboarding" />
-                  <Stack.Screen name="(tabs)" />
-                  <Stack.Screen name="user-profile" />
-                  <Stack.Screen name="chat/[userId]" />
-                  <Stack.Screen name="create-story" />
-                  <Stack.Screen name="view-stories" />
-                  <Stack.Screen name="+not-found" />
-                </Stack>
-                <StatusBar style="auto" />
-                <SafeAlert />
-                {isDevelopment && (
-                  <View style={{ position: 'absolute', top: 80, right: 10, zIndex: 9999 }}>
-                  </View>
-                )}
-                </ThemeProvider>
-              </StoriesProvider>
-            </ChatProvider>
-          </ConversationProvider>
-        </PrefetchProvider>
-      </AuthProvider>
-    </AppInitializer>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AppInitializer>
+        <AuthProvider>
+          <PrefetchProvider>
+            <ConversationProvider>
+              <ChatProvider>
+                <StoriesProvider>
+                  <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                  <Stack
+                    screenOptions={{
+                      headerShown: false,
+                    }}
+                  >
+                    <Stack.Screen name="(auth)" />
+                    <Stack.Screen name="onboarding" />
+                    <Stack.Screen name="(tabs)" />
+                    <Stack.Screen name="user-profile" />
+                    <Stack.Screen name="chat/[userId]" />
+                    <Stack.Screen name="create-story" />
+                    <Stack.Screen name="view-stories" />
+                    <Stack.Screen name="+not-found" />
+                  </Stack>
+                  <StatusBar style="auto" />
+                  <SafeAlert />
+                  {isDevelopment && (
+                    <View style={{ position: 'absolute', top: 80, right: 10, zIndex: 9999 }}>
+                    </View>
+                  )}
+                  </ThemeProvider>
+                </StoriesProvider>
+              </ChatProvider>
+            </ConversationProvider>
+          </PrefetchProvider>
+        </AuthProvider>
+      </AppInitializer>
+    </GestureHandlerRootView>
   );
 }

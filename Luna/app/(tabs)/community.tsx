@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { PanGestureHandler, State, Directions } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import StoryPost from '@/components/StoryPost';
@@ -36,6 +37,25 @@ export default function CommunityScreen() {
   ];
 
   const currentStories = getStoriesBySection(activeSection);
+
+  const handleSwipeGesture = useCallback((event: any) => {
+    if (event.nativeEvent.state === State.END) {
+      const { translationX } = event.nativeEvent;
+      const threshold = 50; // Mínimo de píxeles para considerar el swipe
+      
+      if (Math.abs(translationX) > threshold) {
+        const currentIndex = sections.findIndex(s => s.key === activeSection);
+        
+        if (translationX > 0 && currentIndex > 0) {
+          // Swipe hacia la derecha - ir al tab anterior
+          setActiveSection(sections[currentIndex - 1].key);
+        } else if (translationX < 0 && currentIndex < sections.length - 1) {
+          // Swipe hacia la izquierda - ir al tab siguiente
+          setActiveSection(sections[currentIndex + 1].key);
+        }
+      }
+    }
+  }, [activeSection, sections]);
 
   const handleRefresh = useCallback(async () => {
     await refreshSection(activeSection);
@@ -89,11 +109,13 @@ export default function CommunityScreen() {
               activeSection === section.key && styles.activeTab
             ]}
             onPress={() => setActiveSection(section.key)}
+            activeOpacity={0.7}
           >
             <Ionicons
               name={section.icon as any}
               size={20}
-              color={activeSection === section.key ? '#FFD700' : '#CCCCCC'}
+              color={activeSection === section.key ? '#000000' : '#FFFFFF'}
+              style={styles.tabIcon}
             />
             <Text
               style={[
@@ -131,30 +153,39 @@ export default function CommunityScreen() {
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
       {renderHeader()}
       
-      <FlatList
-        data={currentStories}
-        renderItem={renderStory}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContainer}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={isLoading}
-            onRefresh={handleRefresh}
-            tintColor="#FFD700"
-            colors={['#FFD700']}
+      <PanGestureHandler 
+        onGestureEvent={handleSwipeGesture} 
+        onHandlerStateChange={handleSwipeGesture}
+        activeOffsetX={[-15, 15]}
+        activeOffsetY={[-1000, 1000]}
+      >
+        <View style={styles.gestureContainer}>
+          <FlatList
+            data={currentStories}
+            renderItem={renderStory}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContainer}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={isLoading}
+                onRefresh={handleRefresh}
+                tintColor="#FFD700"
+                colors={['#FFD700']}
+              />
+            }
+            ListEmptyComponent={!isLoading ? renderEmptyState : null}
+            ListFooterComponent={
+              isLoading && currentStories.length > 0 ? (
+                <LoadingSpinner 
+                  message="Cargando más historias..." 
+                  size="small" 
+                />
+              ) : null
+            }
           />
-        }
-        ListEmptyComponent={!isLoading ? renderEmptyState : null}
-        ListFooterComponent={
-          isLoading && currentStories.length > 0 ? (
-            <LoadingSpinner 
-              message="Cargando más historias..." 
-              size="small" 
-            />
-          ) : null
-        }
-      />
+        </View>
+      </PanGestureHandler>
     </View>
   );
 }
@@ -164,10 +195,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#1a1a1a',
   },
+  gestureContainer: {
+    flex: 1,
+  },
   header: {
-    paddingTop: 60,
+    paddingTop: 50,
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingBottom: 10,
     backgroundColor: '#1a1a1a',
   },
   title: {
@@ -180,7 +214,7 @@ const styles = StyleSheet.create({
   tabsContainer: {
     flexDirection: 'row',
     backgroundColor: '#2a2a2a',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 4,
   },
   tab: {
@@ -190,16 +224,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 12,
     paddingHorizontal: 8,
-    borderRadius: 8,
+    borderRadius: 16,
   },
   activeTab: {
     backgroundColor: '#FFD700',
+  },
+  tabIcon: {
+    marginRight: 6,
   },
   tabText: {
     color: '#CCCCCC',
     fontSize: 14,
     fontWeight: '500',
-    marginLeft: 6,
   },
   activeTabText: {
     color: '#000000',

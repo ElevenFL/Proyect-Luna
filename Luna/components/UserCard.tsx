@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import OptimizedImage from './OptimizedImage';
 import StoryRing from './StoryRing';
 import { useStories } from '@/contexts/StoriesContext';
+import { usePrefetch, UserWithPrefetch } from '@/contexts/PrefetchContext';
 
 export interface User {
   id: string;
@@ -28,28 +29,49 @@ interface UserCardProps {
 
 export const UserCard: React.FC<UserCardProps> = ({ user, onPress, onStoryPress }) => {
   const { getStoriesByUser, isLoading, stories } = useStories();
+  const { getPrefetchedUser } = usePrefetch();
   const [userStories, setUserStories] = useState<any[]>([]);
   
-  // Actualizar historias del usuario cuando cambien las historias globales
+  // Intentar obtener datos prefetchados primero
+  const prefetchedUser = useMemo(() => getPrefetchedUser(user.id), [user.id, getPrefetchedUser]);
+  
+  // Determinar si usar datos prefetchados o del contexto de stories
+  const hasActiveStories = useMemo(() => {
+    if (prefetchedUser?.prefetchData?.stories) {
+      return prefetchedUser.prefetchData.stories.hasActiveStories;
+    }
+    return userStories.length > 0;
+  }, [prefetchedUser?.prefetchData?.stories?.hasActiveStories, userStories.length]);
+  
+  const hasUnviewedStories = useMemo(() => {
+    if (prefetchedUser?.prefetchData?.stories) {
+      return prefetchedUser.prefetchData.stories.hasUnviewedStories;
+    }
+    return userStories.some(story => !story.isViewed);
+  }, [prefetchedUser?.prefetchData?.stories?.hasUnviewedStories, userStories]);
+  
+  // Actualizar historias del usuario cuando cambien las historias globales (fallback)
   useEffect(() => {
-    if (!isLoading && stories.length >= 0) {
+    // Solo hacer la búsqueda costosa si no hay datos prefetchados
+    if (!prefetchedUser?.prefetchData?.stories && !isLoading && stories.length >= 0) {
       const userStories = getStoriesByUser(user.id);
       setUserStories(userStories);
       if (userStories.length > 0) {
         console.log(`🔄 UserCard: Actualizando historias para ${user.name}: ${userStories.length} stories`);
       }
     }
-  }, [stories, isLoading, user.id, getStoriesByUser]);
-  
-  const hasActiveStories = userStories.length > 0;
-  const hasUnviewedStories = userStories.some(story => !story.isViewed);
+  }, [stories, isLoading, user.id, getStoriesByUser, prefetchedUser]);
 
-  // Debug logs (reducidos)
-  if (userStories.length > 0) {
-    console.log(`✅ UserCard: Usuario ${user.name} tiene ${userStories.length} stories - StoryRing debería aparecer`);
-  }
+  // Debug logs (reducidos) - solo cuando realmente cambie hasActiveStories
+  useEffect(() => {
+    if (hasActiveStories) {
+      const source = prefetchedUser?.prefetchData?.stories ? 'prefetch' : 'context';
+      const count = prefetchedUser?.prefetchData?.stories?.storiesCount || userStories.length;
+      console.log(`✅ UserCard: Usuario ${user.name} tiene ${count} stories (${source}) - StoryRing debería aparecer`);
+    }
+  }, [hasActiveStories]);
 
-  const getGenderIcon = () => {
+  const getGenderIcon = useCallback(() => {
     switch (user.gender) {
       case 'male':
         return 'male';
@@ -58,9 +80,9 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress, onStoryPress 
       default:
         return 'male-female';
     }
-  };
+  }, [user.gender]);
 
-  const getGenderIconColor = () => {
+  const getGenderIconColor = useCallback(() => {
     switch (user.gender) {
       case 'male':
         return '#4A90E2'; // Azul
@@ -69,18 +91,18 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress, onStoryPress 
       default:
         return '#FFFFFF'; // Blanco
     }
-  };
+  }, [user.gender]);
 
-  const getInitials = (name: string) => {
+  const getInitials = useCallback((name: string) => {
     return name
       .split(' ')
       .map(word => word.charAt(0))
       .join('')
       .toUpperCase()
       .slice(0, 2);
-  };
+  }, []);
 
-  const getTimeAgo = (dateString: string) => {
+  const getTimeAgo = useCallback((dateString: string) => {
     const now = new Date();
     const lastSeen = new Date(dateString);
     const diffMs = now.getTime() - lastSeen.getTime();
@@ -96,7 +118,7 @@ export const UserCard: React.FC<UserCardProps> = ({ user, onPress, onStoryPress 
     } else {
       return diffDays === 1 ? 'Hace 1 día' : `Hace ${diffDays} días`;
     }
-  };
+  }, []);
 
   return (
     <TouchableOpacity 

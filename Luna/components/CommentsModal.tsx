@@ -225,12 +225,14 @@ export default function CommentsModal({ visible, story, onClose }: CommentsModal
               )}
             </View>
             <View style={styles.commentUserDetails}>
-              <Text style={styles.commentUserName}>{item.userName}</Text>
+              <View style={styles.commentNameAndTimeRow}>
+                <Text style={styles.commentUserName}>{item.userName}</Text>
+                <Text style={styles.commentTime}>{formatTimeAgo(item.timestamp)}</Text>
+              </View>
+              <Text style={styles.commentContent}>{item.content}</Text>
             </View>
           </View>
-          <Text style={styles.commentTime}>{formatTimeAgo(item.timestamp)}</Text>
         </View>
-        <Text style={styles.commentContent}>{item.content}</Text>
       </View>
     );
   };
@@ -289,15 +291,22 @@ export default function CommentsModal({ visible, story, onClose }: CommentsModal
               )}
             </View>
             <View style={styles.storyUserDetails}>
-              <Text style={styles.storyUserName}>{story.userName}</Text>
+              <View style={styles.storyNameAndTimeRow}>
+                <Text style={styles.storyUserName}>{story.userName}</Text>
+                <Text style={styles.storyTime}>
+                  {formatTimeAgo(story.createdAt)}
+                </Text>
+              </View>
+              {story.content.type === 'image' && story.content.description && (
+                <Text style={styles.storyDescription}>{story.content.description}</Text>
+              )}
             </View>
-            <Text style={styles.storyTime}>
-              {formatTimeAgo(story.createdAt)}
-            </Text>
           </View>
-          <Text style={styles.storyContent} numberOfLines={2}>
-            {story.content.type === 'text' ? story.content.data : ''}
-          </Text>
+          {story.content.type === 'text' && (
+            <Text style={styles.storyContent} numberOfLines={2}>
+              {story.content.data}
+            </Text>
+          )}
         </View>
 
         {/* Comments List */}
@@ -427,15 +436,27 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 8,
   },
+  storyNameAndTimeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   storyUserName: {
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
+    flex: 1,
   },
   storyTime: {
     color: '#CCCCCC',
     fontSize: 12,
-    alignSelf: 'flex-start',
+    marginLeft: 8,
+  },
+  storyDescription: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    lineHeight: 20,
   },
   storyContent: {
     color: '#FFFFFF',
@@ -512,21 +533,27 @@ const styles = StyleSheet.create({
   commentUserDetails: {
     flex: 1,
   },
+  commentNameAndTimeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   commentUserName: {
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
+    flex: 1,
   },
   commentTime: {
     color: '#CCCCCC',
     fontSize: 12,
-    alignSelf: 'flex-start',
+    marginLeft: 8,
   },
   commentContent: {
     color: '#FFFFFF',
     fontSize: 14,
     lineHeight: 20,
-    marginLeft: 44,
   },
   inputContainer: {
     padding: 16,
