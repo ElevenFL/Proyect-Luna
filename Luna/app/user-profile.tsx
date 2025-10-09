@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, StatusBar, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, StatusBar, TouchableOpacity, Dimensions, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import OptimizedImage from '@/components/OptimizedImage';
+import UserStoriesGrid from '@/components/UserStoriesGrid';
 import apiService from '@/services/apiService';
 import { usePrefetch } from '@/contexts/PrefetchContext';
 
@@ -360,74 +361,88 @@ export default function UserProfileScreen() {
         </View>
       )}
 
-      {/* Tarjeta de imagen */}
-      <View style={[styles.imageCardWrapper, { width: cardWidth, height: cardHeight }]}>
-        {user.profileImage ? (
-          <OptimizedImage
-            uri={user.profileImage}
-            style={styles.profileImage}
-            cachePolicy="memory-disk"
-            priority="high"
-          />
-        ) : (
-          <View style={styles.profilePlaceholder}>
-            <Text style={styles.initialsText}>{getInitials(user.name)}</Text>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Información del usuario */}
+        <View style={styles.infoSection}>
+          <View style={styles.titleRow}>
+            <View style={styles.nameMetaRow}>
+              <Text style={styles.userName}>{user.name}</Text>
+              <Text style={styles.genderIcon}>{user.gender === 'male' ? '♂' : user.gender === 'female' ? '♀' : '⚧'}</Text>
+              <Text style={styles.userAge}>{user.age}</Text>
+              <Text style={styles.countryFlag}>{user.countryFlag}</Text>
+            </View>
+            <Text style={[styles.statusText, { color: user.isOnline ? '#4CAF50' : '#999999' }]}>
+              {user.isOnline ? 'Online' : 'Offline'}
+            </Text>
           </View>
-        )}
-
-        {/* Gradiente sutil inferior */}
-        <LinearGradient colors={["transparent", "rgba(0,0,0,0.25)"]} style={styles.gradientOverlay} />
-      </View>
-
-      {/* Fila de acciones */}
-      <View style={styles.actionRow}>
-        <TouchableOpacity onPress={handleLike} style={styles.actionIconButton}>
-          <Ionicons name={getHeartState().name} size={28} color={getHeartState().color} />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleMessage} style={styles.actionIconButton}>
-          <Ionicons 
-            name={hasActiveConversation ? "chatbubble" : "chatbubble-outline"} 
-            size={28} 
-            color={hasActiveConversation ? "#FFFFFF" : "#FFFFFF"} 
-          />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleSuperLike} style={styles.actionIconButton}>
-          <View style={styles.starContainer}>
-            <Ionicons 
-              name={superLiked ? 'star' : 'star-outline'} 
-              size={28} 
-              color={superLiked ? '#FFC107' : '#FFFFFF'} 
-            />
-            {starsCount > 0 && (
-              <Text style={styles.starCountText}>{starsCount}</Text>
-            )}
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleMore} style={styles.actionIconButton}>
-          <Ionicons 
-            name={getFriendRequestIconState().name}
-            size={28} 
-            color={getFriendRequestIconState().color}
-          />
-        </TouchableOpacity>
-      </View>
-
-      {/* Información del usuario */}
-      <View style={styles.infoSection}>
-        <View style={styles.titleRow}>
-          <View style={styles.nameMetaRow}>
-            <Text style={styles.userName}>{user.name}</Text>
-            <Text style={styles.genderIcon}>{user.gender === 'male' ? '♂' : user.gender === 'female' ? '♀' : '⚧'}</Text>
-            <Text style={styles.userAge}>{user.age}</Text>
-            <Text style={styles.countryFlag}>{user.countryFlag}</Text>
-          </View>
-          <Text style={styles.statusText}>{user.isOnline ? 'Online' : 'Offline'}</Text>
         </View>
 
-        <Text style={styles.description} numberOfLines={3}>
-          {user.description}
-        </Text>
-      </View>
+        {/* Tarjeta de imagen */}
+        <View style={[styles.imageCardWrapper, { width: cardWidth, height: cardHeight }]}>
+          {user.profileImage ? (
+            <OptimizedImage
+              uri={user.profileImage}
+              style={styles.profileImage}
+              cachePolicy="memory-disk"
+              priority="high"
+            />
+          ) : (
+            <View style={styles.profilePlaceholder}>
+              <Text style={styles.initialsText}>{getInitials(user.name)}</Text>
+            </View>
+          )}
+
+          {/* Gradiente sutil inferior */}
+          <LinearGradient colors={["transparent", "rgba(0,0,0,0.25)"]} style={styles.gradientOverlay} />
+        </View>
+
+        {/* Fila de acciones */}
+        <View style={styles.actionRow}>
+          <TouchableOpacity onPress={handleLike} style={styles.actionIconButton}>
+            <Ionicons name={getHeartState().name} size={28} color={getHeartState().color} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleMessage} style={styles.actionIconButton}>
+            <Ionicons 
+              name={hasActiveConversation ? "chatbubble" : "chatbubble-outline"} 
+              size={28} 
+              color={hasActiveConversation ? "#FFFFFF" : "#FFFFFF"} 
+            />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleSuperLike} style={styles.actionIconButton}>
+            <View style={styles.starContainer}>
+              <Ionicons 
+                name={superLiked ? 'star' : 'star-outline'} 
+                size={28} 
+                color={superLiked ? '#FFC107' : '#FFFFFF'} 
+              />
+              {starsCount > 0 && (
+                <Text style={styles.starCountText}>{starsCount}</Text>
+              )}
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleMore} style={styles.actionIconButton}>
+            <Ionicons 
+              name={getFriendRequestIconState().name}
+              size={28} 
+              color={getFriendRequestIconState().color}
+            />
+          </TouchableOpacity>
+        </View>
+
+        {/* Descripción del usuario */}
+        <View style={styles.descriptionSection}>
+          <Text style={styles.description} numberOfLines={3}>
+            {user.description}
+          </Text>
+        </View>
+
+        {/* Grid de historias del usuario */}
+        <UserStoriesGrid userId={user.id} />
+      </ScrollView>
     </View>
   );
 }
@@ -437,6 +452,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#1a1a1a',
     paddingTop: 12,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingTop: 72,
   },
   header: {
     position: 'absolute',
@@ -456,7 +477,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     borderRadius: 22,
     overflow: 'hidden',
-    marginTop: 72,
+    marginTop: 8,
     backgroundColor: '#141414',
     boxShadow: '0 6px 12px rgba(0, 0, 0, 0.35)',
     elevation: 8,
@@ -506,8 +527,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   infoSection: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
+    marginHorizontal: 24,
+    marginBottom: 0,
+  },
+  descriptionSection: {
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 10,
   },
   titleRow: {
     flexDirection: 'row',
@@ -541,14 +567,12 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 12,
-    color: '#4CAF50',
     fontWeight: '500',
   },
   description: {
-    fontSize: 12,
+    fontSize: 16,
     color: '#CCCCCC',
-    lineHeight: 18,
-    paddingRight: 24,
+    lineHeight: 20,
   },
   matchAnimation: {
     position: 'absolute',

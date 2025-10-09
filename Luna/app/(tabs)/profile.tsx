@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, StatusBar, TouchableOpacity, Alert, ActivityIndicator, TextInput, Dimensions, Platform } from 'react-native';
+import { View, Text, StyleSheet, StatusBar, TouchableOpacity, Alert, ActivityIndicator, TextInput, Dimensions, Platform, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
@@ -9,6 +9,7 @@ import apiService from '@/services/apiService';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageService } from '@/services/imageService';
+import UserStoriesGrid from '@/components/UserStoriesGrid';
 
 const { width, height } = Dimensions.get('window');
 
@@ -35,6 +36,7 @@ export default function ProfileScreen() {
   const [originalBirthDate, setOriginalBirthDate] = useState<Date | null>(null);
   const [originalProfileImage, setOriginalProfileImage] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
 
   // Función para calcular la edad desde birthDate
   const calculateAge = (birthDate: string): number => {
@@ -144,6 +146,21 @@ export default function ProfileScreen() {
     setHasChanges(nameChanged || descChanged || genderChanged || birthChanged || imageChanged);
   }, [name, originalName, description, originalDescription, gender, originalGender, birthDate, originalBirthDate, profileImage, originalProfileImage]);
 
+  // Función para activar/desactivar modo edición
+  const handleEditToggle = async () => {
+    if (isEditMode && hasChanges) {
+      // Si está en modo edición y hay cambios, guardar automáticamente
+      await saveProfile();
+      // saveProfile ya desactiva isEditMode, no es necesario hacerlo aquí
+    } else if (isEditMode) {
+      // Si está en modo edición pero no hay cambios, solo salir
+      setIsEditMode(false);
+    } else {
+      // Activar modo edición
+      setIsEditMode(true);
+    }
+  };
+
   // Función para guardar cambios en el perfil
   const saveProfile = async () => {
     if (!user?.id) return;
@@ -213,7 +230,7 @@ export default function ProfileScreen() {
           setOriginalBirthDate(birthDate);
           setOriginalProfileImage(profileImage);
           
-          Alert.alert('Éxito', 'Perfil actualizado correctamente');
+          setIsEditMode(false);
         } else {
           throw new Error(response.message || 'Error actualizando perfil');
         }
@@ -356,126 +373,149 @@ export default function ProfileScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       
-      {/* Header con iconos */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.headerIcon}>
-          <Ionicons name="settings-outline" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Imagen de perfil grande */}
-      <View style={styles.profileImageContainer}>
-        {profileImage && profileImage !== 'default' ? (
-          <OptimizedImage
-            uri={profileImage}
-            style={styles.profileImage}
-            cachePolicy="memory-disk"
-            priority="high"
-          />
-        ) : (
-          <View style={styles.profilePlaceholder}>
-            <Text style={styles.initialsText}>{getInitials(name || 'Usuario')}</Text>
+      <ScrollView 
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Header con nombre e iconos */}
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <TextInput
+              style={[
+                styles.headerNameInput, 
+                isEditMode && styles.headerNameEditable,
+                !isEditMode && styles.headerNameDisabled
+              ]}
+              value={name}
+              onChangeText={setName}
+              placeholder="Nombre"
+              placeholderTextColor="#999999"
+              editable={isEditMode}
+            />
           </View>
-        )}
-        <TouchableOpacity 
-          style={[styles.cameraIcon, isPickingImage && styles.cameraIconDisabled]} 
-          onPress={handleImagePick} 
-          disabled={isPickingImage}
-        >
-          {isPickingImage ? (
-            <ActivityIndicator size="small" color="#FFD700" />
+          <View style={styles.headerRight}>
+            <TouchableOpacity 
+              style={styles.headerIcon}
+              onPress={handleEditToggle}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <ActivityIndicator size="small" color="#4CAF50" />
+              ) : (
+                <Ionicons 
+                  name={isEditMode ? "checkmark-outline" : "create-outline"} 
+                  size={24} 
+                  color={isEditMode ? "#4CAF50" : "#FFFFFF"} 
+                />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.headerIcon}
+              onPress={() => router.push('/settings')}
+            >
+              <Ionicons name="settings-outline" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Imagen de perfil grande */}
+        <View style={styles.profileImageContainer}>
+          {profileImage && profileImage !== 'default' ? (
+            <OptimizedImage
+              uri={profileImage}
+              style={styles.profileImage}
+              cachePolicy="memory-disk"
+              priority="high"
+            />
           ) : (
-            <Ionicons name="camera" size={20} color="#FFD700" />
+            <View style={styles.profilePlaceholder}>
+              <Text style={styles.initialsText}>{getInitials(name || 'Usuario')}</Text>
+            </View>
           )}
-        </TouchableOpacity>
-      </View>
+          {isEditMode && (
+            <TouchableOpacity 
+              style={[styles.cameraIcon, isPickingImage && styles.cameraIconDisabled]} 
+              onPress={handleImagePick} 
+              disabled={isPickingImage}
+            >
+              {isPickingImage ? (
+                <ActivityIndicator size="small" color="#FFD700" />
+              ) : (
+                <Ionicons name="camera" size={20} color="#FFD700" />
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
 
-      {/* Campos de información */}
-      <View style={styles.infoContainer}>
-        {/* Nombre */}
-        <View style={styles.nameRow}>
+        {/* Campos de información */}
+        <View style={styles.infoContainer}>
+          {/* Género - Edad - Nacionalidad */}
+          <View style={styles.genderAgeNationalityRow}>
+            <TouchableOpacity 
+              style={[
+                styles.genderButton,
+                gender === 'male' && styles.genderButtonMale,
+                gender === 'female' && styles.genderButtonFemale,
+                gender === 'other' && styles.genderButtonOther,
+                !isEditMode && styles.buttonDisabled
+              ]}
+              onPress={handleGenderToggle}
+              disabled={!isEditMode}
+            >
+              <Text style={styles.genderSymbol}>
+                {getGenderSymbol()}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.dateInput, !isEditMode && styles.buttonDisabled]} 
+              onPress={() => setShowDatePicker(true)}
+              disabled={!isEditMode}
+            >
+              <Text style={styles.dateInputText}>
+                {birthDate ? `${calculateAge(birthDate.toISOString())} años` : 'Seleccionar fecha de nacimiento'}
+              </Text>
+              <Ionicons name="calendar-outline" size={18} color="#999999" />
+            </TouchableOpacity>
+
+            <Text style={styles.countryFlag}>{location?.countryFlag || '🇺🇸'}</Text>
+          </View>
+
+          {showDatePicker && (
+            <DateTimePicker
+              testID="dateTimePicker"
+              value={birthDate || new Date()}
+              mode="date"
+              is24Hour={true}
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              onChange={(event, selectedDate) => {
+                setShowDatePicker(Platform.OS === 'ios');
+                if (selectedDate) {
+                  setBirthDate(selectedDate);
+                  const age = calculateAge(selectedDate.toISOString());
+                  setAge(age.toString());
+                }
+              }}
+            />
+          )}
+
+          {/* Descripción */}
           <TextInput
-            style={styles.nameInput}
-            value={name}
-            onChangeText={setName}
-            placeholder="Name"
+            style={[styles.descriptionInput, !isEditMode && styles.inputDisabled]}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Descripción"
             placeholderTextColor="#999999"
+            multiline
+            numberOfLines={3}
+            editable={isEditMode}
           />
         </View>
 
-        {/* Género - Edad - Nacionalidad */}
-        <View style={styles.genderAgeNationalityRow}>
-          <TouchableOpacity 
-            style={[
-              styles.genderButton,
-              gender === 'male' && styles.genderButtonMale,
-              gender === 'female' && styles.genderButtonFemale,
-              gender === 'other' && styles.genderButtonOther
-            ]}
-            onPress={handleGenderToggle}
-          >
-            <Text style={styles.genderSymbol}>
-              {getGenderSymbol()}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.dateInput} onPress={() => setShowDatePicker(true)}>
-            <Text style={styles.dateInputText}>
-              {birthDate ? `${calculateAge(birthDate.toISOString())} años` : 'Seleccionar fecha de nacimiento'}
-            </Text>
-            <Ionicons name="calendar-outline" size={18} color="#999999" />
-          </TouchableOpacity>
-
-          <Text style={styles.countryFlag}>{location?.countryFlag || '🇺🇸'}</Text>
-        </View>
-
-        {showDatePicker && (
-          <DateTimePicker
-            testID="dateTimePicker"
-            value={birthDate || new Date()}
-            mode="date"
-            is24Hour={true}
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={(event, selectedDate) => {
-              setShowDatePicker(Platform.OS === 'ios');
-              if (selectedDate) {
-                setBirthDate(selectedDate);
-                const age = calculateAge(selectedDate.toISOString());
-                setAge(age.toString());
-              }
-            }}
-          />
-        )}
-
-        {/* Descripción */}
-        <TextInput
-          style={styles.descriptionInput}
-          value={description}
-          onChangeText={setDescription}
-          placeholder="Descripción"
-          placeholderTextColor="#999999"
-          multiline
-          numberOfLines={3}
-        />
-
-        {/* Botón para guardar cambios */}
-        {hasChanges && (
-          <TouchableOpacity 
-            style={[styles.saveButton, isSaving && styles.saveButtonDisabled]} 
-            onPress={saveProfile}
-            disabled={isSaving}
-          >
-            {isSaving ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <Ionicons name="checkmark" size={20} color="#FFFFFF" />
-            )}
-            <Text style={styles.saveButtonText}>
-              {isSaving ? 'Guardando...' : 'Guardar Cambios'}
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
+        {/* Grilla de Historias del Usuario */}
+        {user?.id && <UserStoriesGrid userId={user.id} />}
+      </ScrollView>
     </View>
   );
 }
@@ -485,17 +525,48 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#1a1a1a',
   },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingTop: 50,
+    paddingBottom: 40,
+  },
   header: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
     flexDirection: 'row',
-    zIndex: 10,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 10,
+    paddingHorizontal: 20,
+    backgroundColor: '#1a1a1a',
+  },
+  headerLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
+  headerRight: {
+    flexDirection: 'row',
+  },
+  headerNameInput: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    backgroundColor: 'transparent',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  headerNameEditable: {
+    backgroundColor: 'rgba(47, 47, 47, 0.8)',
+  },
+  headerNameDisabled: {
+    opacity: 1,
   },
   headerIcon: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 12,
@@ -505,7 +576,6 @@ const styles = StyleSheet.create({
     width: width - 40,
     height: width - 40, // Cuadrada
     alignSelf: 'center',
-    marginTop: 90, // Ajustado
     borderRadius: 16,
     overflow: 'hidden',
     position: 'relative',
@@ -648,7 +718,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 8,
-    width: 140,
+    width: 270,
     marginRight: 8,
     height: 40, // Aumentado para coincidir con nameInput
   },
@@ -658,5 +728,12 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginRight: 4,
     textAlign: 'center', // Para centrar el texto con el icono
+  },
+  inputDisabled: {
+    opacity: 0.6,
+    backgroundColor: '#252525',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
 });

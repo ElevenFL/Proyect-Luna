@@ -47,13 +47,9 @@ export const ONBOARDING_CONFIG = {
 export const needsOnboarding = (user: any): boolean => {
   if (!user) return true;
   
-  return !user.profileCompleted || !ONBOARDING_CONFIG.REQUIRED_FIELDS.every(field => 
-    user[field] && (
-      field === 'location' ? 
-        user[field].latitude && user[field].longitude : 
-        true
-    )
-  );
+  // Confiar completamente en el campo profileCompleted de la base de datos
+  // Si profileCompleted es true, el usuario NO necesita completar el onboarding
+  return !user.profileCompleted;
 };
 
 // Función para obtener la ruta de destino según el estado del usuario

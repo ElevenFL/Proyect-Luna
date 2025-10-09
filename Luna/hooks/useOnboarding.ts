@@ -145,12 +145,14 @@ export const useOnboarding = () => {
   const isProfileComplete = (): boolean => {
     if (!user) return false;
     
+    // Verificar que todos los campos requeridos estén presentes
     return !!(
       user.displayName &&
       user.birthDate &&
       user.gender &&
       user.location &&
-      user.profileImage
+      user.profileImage &&
+      user.profileCompleted // También verificar el flag de la base de datos
     );
   };
 

@@ -46,13 +46,9 @@ export default function LoginScreen() {
         hasProfileImage: !!result.user?.profileImage
       });
       
-      // Lógica más inteligente: verificar múltiples campos para determinar si el perfil está realmente completo
-      const shouldGoToOnboarding = result.user && (
-        !result.user.profileCompleted || 
-        !result.user.displayName || 
-        !result.user.birthDate || 
-        !result.user.gender
-      );
+      // Confiar en el campo profileCompleted de la base de datos
+      // Si es true, el usuario ya completó el onboarding
+      const shouldGoToOnboarding = result.user && !result.user.profileCompleted;
       
       if (shouldGoToOnboarding) {
         console.log('🔀 Usuario con perfil incompleto, redirigiendo al onboarding');

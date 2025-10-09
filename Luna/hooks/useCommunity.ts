@@ -15,7 +15,7 @@ export interface CommunityData {
 }
 
 export const useCommunity = () => {
-  const { stories, isLoading: storiesLoading } = useStories();
+  const { stories, isLoading: storiesLoading, toggleLike, isLikedByUser } = useStories();
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -145,8 +145,11 @@ export const useCommunity = () => {
     error,
     getStoriesBySection,
     refreshSection,
+    toggleLike,
+    isLikedByUser,
   };
 };
+
 
 
 

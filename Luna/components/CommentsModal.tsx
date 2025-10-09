@@ -285,14 +285,14 @@ export default function CommentsModal({ visible, story, onClose }: CommentsModal
               ) : (
                 <View style={[styles.storyProfileImage, styles.storyProfileImagePlaceholder]}>
                   <Text style={styles.storyProfileImageText}>
-                    {getInitials(story.userName)}
+                    {getInitials(story.userName || 'Usuario')}
                   </Text>
                 </View>
               )}
             </View>
             <View style={styles.storyUserDetails}>
               <View style={styles.storyNameAndTimeRow}>
-                <Text style={styles.storyUserName}>{story.userName}</Text>
+                <Text style={styles.storyUserName}>{story.userName || 'Usuario'}</Text>
                 <Text style={styles.storyTime}>
                   {formatTimeAgo(story.createdAt)}
                 </Text>

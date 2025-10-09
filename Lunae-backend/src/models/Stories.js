@@ -181,22 +181,31 @@ export class Story {
 
   static async findByUserId(userId) {
     try {
-      const command = new QueryCommand({
+      // Usar Scan con filtro ya que no tenemos un GSI para SK
+      const command = new ScanCommand({
         TableName: TABLE_NAME,
-        KeyConditionExpression: 'SK = :sk',
-        FilterExpression: 'begins_with(PK, :pk)',
+        FilterExpression: 'SK = :sk AND begins_with(PK, :pk)',
         ExpressionAttributeValues: {
           ':sk': `USER#${userId}`,
           ':pk': 'STORY#'
-        },
-        ScanIndexForward: false // Ordenar por fecha descendente
+        }
       });
 
       const result = await docClient.send(command);
-      console.log(`🔍 Encontrados ${result.Items.length} stories para usuario ${userId}`);
-      return result.Items.map(item => Story.fromDynamoDB(item));
+      console.log(`🔍 Encontrados ${result.Items?.length || 0} stories para usuario ${userId}`);
+      
+      // Mapear y ordenar por fecha de creación (más reciente primero)
+      const stories = (result.Items || []).map(item => Story.fromDynamoDB(item));
+      stories.sort((a, b) => {
+        const dateA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
+        const dateB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt);
+        return dateB.getTime() - dateA.getTime();
+      });
+      
+      return stories;
     } catch (error) {
       console.error('❌ Error buscando stories por userId:', error);
+      console.error('Detalles del error:', error.message, error.stack);
       throw error;
     }
   }

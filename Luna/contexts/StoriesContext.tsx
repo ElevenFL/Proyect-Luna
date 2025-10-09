@@ -12,6 +12,8 @@ interface StoriesContextType {
   refreshStories: () => Promise<void>;
   getStoriesByUser: (userId: string) => Story[];
   hasUnviewedStories: boolean;
+  toggleLike: (storyId: string) => Promise<void>;
+  isLikedByUser: (storyId: string) => boolean;
 }
 
 const StoriesContext = createContext<StoriesContextType | undefined>(undefined);
@@ -33,6 +35,7 @@ export const StoriesProvider: React.FC<StoriesProviderProps> = ({ children }) =>
   const [stories, setStories] = useState<Story[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
+  const [likedStories, setLikedStories] = useState<Set<string>>(new Set());
 
   // Filtrar stories del usuario actual
   const userStories = stories.filter(story => story.userId === user?.id);
@@ -204,6 +207,72 @@ export const StoriesProvider: React.FC<StoriesProviderProps> = ({ children }) =>
     return userStories;
   }, [stories]);
 
+  const toggleLike = useCallback(async (storyId: string) => {
+    if (!user?.id) {
+      console.warn('Usuario no autenticado, no se puede dar like');
+      return;
+    }
+
+    try {
+      const isCurrentlyLiked = likedStories.has(storyId);
+      
+      if (isCurrentlyLiked) {
+        // Quitar like
+        const response = await storiesService.unlikeStory(storyId);
+        setLikedStories(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(storyId);
+          return newSet;
+        });
+        
+        // Actualizar contador de likes con la respuesta del backend
+        setStories(prevStories =>
+          prevStories.map(story =>
+            story.id === storyId 
+              ? { 
+                  ...story, 
+                  stats: { 
+                    ...story.stats, 
+                    likes: response.stats.likes 
+                  } 
+                } 
+              : story
+          )
+        );
+        
+        console.log(`👎 Like removido del story ${storyId}. Nuevo contador: ${response.stats.likes}`);
+      } else {
+        // Dar like
+        const response = await storiesService.likeStory(storyId);
+        setLikedStories(prev => new Set(prev).add(storyId));
+        
+        // Actualizar contador de likes con la respuesta del backend
+        setStories(prevStories =>
+          prevStories.map(story =>
+            story.id === storyId 
+              ? { 
+                  ...story, 
+                  stats: { 
+                    ...story.stats, 
+                    likes: response.stats.likes 
+                  } 
+                } 
+              : story
+          )
+        );
+        
+        console.log(`👍 Like agregado al story ${storyId}. Nuevo contador: ${response.stats.likes}`);
+      }
+    } catch (error) {
+      console.error('❌ Error al dar like:', error);
+      throw error;
+    }
+  }, [user?.id, likedStories]);
+
+  const isLikedByUser = useCallback((storyId: string) => {
+    return likedStories.has(storyId);
+  }, [likedStories]);
+
   const value: StoriesContextType = {
     stories,
     userStories,
@@ -213,6 +282,8 @@ export const StoriesProvider: React.FC<StoriesProviderProps> = ({ children }) =>
     refreshStories,
     getStoriesByUser,
     hasUnviewedStories,
+    toggleLike,
+    isLikedByUser,
   };
 
   return (

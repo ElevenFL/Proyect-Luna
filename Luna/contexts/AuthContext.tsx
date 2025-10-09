@@ -276,7 +276,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               id: currentUser.userId,
               username: currentUser.username,
               email: currentUser.signInDetails?.loginId || '',
-              profileCompleted: true, // Iniciar como true y actualizar según la DB si es posible
+              profileCompleted: false, // Iniciar como false hasta sincronizar con la DB
               active: true,
               lastLogin: new Date().toISOString()
             };
@@ -334,7 +334,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           id: currentUser.userId,
           username: currentUser.username,
           email: currentUser.signInDetails?.loginId || '',
-          profileCompleted: true, // Iniciar como true y solo cambiar a false si es necesario
+          profileCompleted: false, // Iniciar como false hasta confirmar con la base de datos
           active: true,
           lastLogin: new Date().toISOString(),
           loginAttempts: 0,
@@ -376,10 +376,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               // Mantener el amplifySub original
               userData.amplifySub = currentUser.userId;
             } else {
-              console.log('⚠️ Error en sincronización, verificando si es usuario nuevo o existente');
-              // Si la sincronización falla, asumir que es un usuario existente con perfil completo
-              // Solo usuarios nuevos necesitarían completar el onboarding
-              console.log('⚠️ Manteniendo profileCompleted como true debido a error de sincronización');
+              console.log('⚠️ Error en sincronización');
+              console.log('⚠️ Manteniendo profileCompleted como false - el usuario deberá completar el onboarding');
             }
           }
         } catch (syncError) {
@@ -402,9 +400,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
           
           // Continuar con el flujo aunque haya error de sincronización
-          // Mantener profileCompleted como true asumiendo que es un usuario existente
+          // Mantener profileCompleted como false por seguridad
           console.log('⚠️ Continuando con el login sin sincronización...');
-          console.log('🔧 Manteniendo profileCompleted como true debido a error de sincronización (asumiendo usuario existente)');
+          console.log('🔧 Manteniendo profileCompleted como false - el usuario deberá completar el onboarding si es necesario');
         }
         
         setUser(userData);

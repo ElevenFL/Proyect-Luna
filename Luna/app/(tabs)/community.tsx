@@ -27,7 +27,9 @@ export default function CommunityScreen() {
     isLoading, 
     error, 
     getStoriesBySection, 
-    refreshSection 
+    refreshSection,
+    toggleLike,
+    isLikedByUser
   } = useCommunity();
 
   const sections = [
@@ -61,9 +63,14 @@ export default function CommunityScreen() {
     await refreshSection(activeSection);
   }, [activeSection, refreshSection]);
 
-  const handleLike = useCallback((storyId: string) => {
-    console.log('Like dado al story:', storyId);
-  }, []);
+  const handleLike = useCallback(async (storyId: string) => {
+    try {
+      await toggleLike(storyId);
+      console.log('Like procesado para el story:', storyId);
+    } catch (error) {
+      console.error('Error al procesar like:', error);
+    }
+  }, [toggleLike]);
 
   const handleShare = useCallback((storyId: string) => {
     Alert.alert('Compartir', 'Función de compartir próximamente');

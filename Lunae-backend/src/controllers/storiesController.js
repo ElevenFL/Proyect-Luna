@@ -91,24 +91,21 @@ export const getUserStories = async (req, res) => {
       });
     }
 
-    // Obtener stories del usuario
+    // Obtener TODAS las stories del usuario (incluidas las expiradas)
     const stories = await Story.findByUserId(userId);
 
-    // Filtrar solo stories activos (no expirados)
-    const activeStories = stories.filter(story => 
-      new Date(story.expiresAt) > new Date()
-    );
-
-    // Marcar stories como vistos si el usuario actual los está viendo
+    // Marcar stories activos como vistos si el usuario actual los está viendo
     if (userId !== currentUserId) {
-      for (const story of activeStories) {
-        if (!story.hasBeenViewedBy(currentUserId)) {
+      for (const story of stories) {
+        // Solo marcar como visto si no ha expirado
+        const isActive = new Date(story.expiresAt) > new Date();
+        if (isActive && !story.hasBeenViewedBy(currentUserId)) {
           await story.markAsViewed(currentUserId);
         }
       }
     }
 
-    console.log(`✅ Stories obtenidos para usuario ${userId}: ${activeStories.length} activos`);
+    console.log(`✅ Stories obtenidos para usuario ${userId}: ${stories.length} total (incluyendo expirados)`);
 
     res.json({
       success: true,
@@ -116,8 +113,11 @@ export const getUserStories = async (req, res) => {
         userId,
         userName: user.displayName || user.username,
         userProfileImage: user.profileImage,
-        stories: activeStories.map(story => ({
+        stories: stories.map(story => ({
           id: story.id,
+          userId: story.userId,
+          userName: story.userName || user.displayName || user.username,
+          userProfileImage: story.userProfileImage || user.profileImage,
           content: story.content,
           location: story.location,
           createdAt: story.createdAt,

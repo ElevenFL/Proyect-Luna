@@ -9,11 +9,12 @@ import {
   Alert,
   Modal,
   StatusBar,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Story } from '@/services/storiesService';
 import { useAuth } from '@/contexts/AuthContext';
-import storiesService from '@/services/storiesService';
+import { useStories } from '@/contexts/StoriesContext';
 import CommentsModal from './CommentsModal';
 
 interface StoryPostProps {
@@ -23,7 +24,7 @@ interface StoryPostProps {
   onShare?: (storyId: string) => void;
 }
 
-const { width: screenWidth } = Dimensions.get('window');
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 export default function StoryPost({ 
   story, 
@@ -32,27 +33,20 @@ export default function StoryPost({
   onShare 
 }: StoryPostProps) {
   const { user } = useAuth();
-  const [isLiked, setIsLiked] = useState(false);
-  const [likesCount, setLikesCount] = useState(story.stats.likes);
+  const { toggleLike, isLikedByUser } = useStories();
   const [isLoading, setIsLoading] = useState(false);
   const [showCommentsModal, setShowCommentsModal] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
+  
+  // Verificar si el usuario actual ha dado like a este story
+  const isLiked = isLikedByUser(story.id);
 
   const handleLike = async () => {
-    if (isLoading) return;
+    if (isLoading || !user?.id) return;
     
     try {
       setIsLoading(true);
-      
-      if (isLiked) {
-        await storiesService.unlikeStory(story.id);
-        setLikesCount(prev => Math.max(0, prev - 1));
-      } else {
-        await storiesService.likeStory(story.id);
-        setLikesCount(prev => prev + 1);
-      }
-      
-      setIsLiked(!isLiked);
+      await toggleLike(story.id);
       onLike?.(story.id);
     } catch (error) {
       console.error('Error al dar like:', error);
@@ -120,7 +114,7 @@ export default function StoryPost({
             ) : (
               <View style={[styles.profileImage, styles.profileImagePlaceholder]}>
                 <Text style={styles.profileImageText}>
-                  {getInitials(story.userName)}
+                  {getInitials(story.userName || 'Usuario')}
                 </Text>
               </View>
             )}
@@ -163,24 +157,28 @@ export default function StoryPost({
           onPress={handleLike}
           disabled={isLoading}
         >
-          <Ionicons 
-            name={isLiked ? "star" : "star-outline"} 
-            size={24} 
-            color={isLiked ? "#FFD700" : "#FFFFFF"} 
-          />
-          {likesCount > 0 && (
-            <Text style={styles.actionText}>{likesCount}</Text>
-          )}
+          <View style={styles.likeContainer}>
+            <Ionicons 
+              name={isLiked ? "star" : "star-outline"} 
+              size={24} 
+              color={isLiked ? "#FFD700" : "#FFFFFF"} 
+            />
+            {story.stats.likes > 0 && (
+              <Text style={styles.actionText}>{story.stats.likes}</Text>
+            )}
+          </View>
         </TouchableOpacity>
 
         <TouchableOpacity 
           style={styles.actionButton} 
           onPress={handleComment}
         >
-          <Ionicons name="chatbubble-outline" size={24} color="#FFFFFF" />
-          {story.stats.comments > 0 && (
-            <Text style={styles.actionText}>{story.stats.comments}</Text>
-          )}
+          <View style={styles.likeContainer}>
+            <Ionicons name="chatbubble-outline" size={24} color="#FFFFFF" />
+            {story.stats.comments > 0 && (
+              <Text style={styles.actionText}>{story.stats.comments}</Text>
+            )}
+          </View>
         </TouchableOpacity>
 
         <TouchableOpacity 
@@ -203,10 +201,11 @@ export default function StoryPost({
         visible={showImageModal}
         transparent={true}
         animationType="fade"
+        statusBarTranslucent={true}
         onRequestClose={() => setShowImageModal(false)}
       >
+        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
         <View style={styles.imageModalContainer}>
-          <StatusBar barStyle="light-content" backgroundColor="rgba(0,0,0,0.9)" />
           <TouchableOpacity 
             style={styles.imageModalCloseButton}
             onPress={() => setShowImageModal(false)}
@@ -214,13 +213,11 @@ export default function StoryPost({
             <Ionicons name="close" size={30} color="#FFFFFF" />
           </TouchableOpacity>
           <View style={styles.imageModalContent}>
-            <View style={styles.imageWrapper}>
-              <Image 
-                source={{ uri: story.content.data }} 
-                style={styles.fullScreenImage}
-                resizeMode="cover"
-              />
-            </View>
+            <Image 
+              source={{ uri: story.content.data }} 
+              style={styles.fullScreenImage}
+              resizeMode="contain"
+            />
           </View>
         </View>
       </Modal>
@@ -319,20 +316,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#333333',
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: 60,
+    marginHorizontal: 50,
   },
   leftButton: {
     justifyContent: 'flex-start',
   },
   rightButton: {
     justifyContent: 'flex-end',
+  },
+  likeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: 60, // Ancho fijo para mantener el ícono en posición fija
+    justifyContent: 'flex-start',
   },
   actionText: {
     color: '#FFFFFF',
@@ -342,13 +343,15 @@ const styles = StyleSheet.create({
   },
   imageModalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    width: screenWidth,
+    height: screenHeight,
+    backgroundColor: 'rgba(0, 0, 0, 0.90)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   imageModalCloseButton: {
     position: 'absolute',
-    top: 60,
+    top: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 20 : 60,
     right: 20,
     zIndex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -363,13 +366,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     width: '100%',
+    paddingVertical: 80,
     paddingHorizontal: 20,
-  },
-  imageWrapper: {
-    width: screenWidth - 20,
-    height: screenWidth - 20,
-    borderRadius: 16,
-    overflow: 'hidden',
   },
   fullScreenImage: {
     width: '100%',

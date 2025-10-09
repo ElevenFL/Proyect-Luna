@@ -27,20 +27,14 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({
 
   // Memoizar el estado del usuario para evitar re-evaluaciones innecesarias
   const userState = useMemo(() => {
-    // Lógica más inteligente para verificar si el perfil está completo
-    const profileReallyCompleted = user && (
-      user.profileCompleted && 
-      user.displayName && 
-      user.birthDate && 
-      user.gender
-    );
-    
+    // Confiar completamente en el campo profileCompleted de la base de datos
+    // Si profileCompleted es true, el usuario NO debe entrar al onboarding
     return {
       hasUser: !!user,
       userId: user?.id,
-      profileCompleted: !!profileReallyCompleted
+      profileCompleted: !!user?.profileCompleted
     };
-  }, [user?.id, user?.profileCompleted, user?.displayName, user?.birthDate, user?.gender]);
+  }, [user?.id, user?.profileCompleted]);
 
   // Efecto unificado para manejar todas las redirecciones
   useEffect(() => {

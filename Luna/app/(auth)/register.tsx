@@ -96,8 +96,16 @@ export default function RegisterScreen() {
         });
       } else {
         console.log('Login automático exitoso');
-        // Login automático exitoso
-        router.replace('/(tabs)');
+        // Login automático exitoso - verificar si necesita completar onboarding
+        const shouldGoToOnboarding = result.user && !result.user.profileCompleted;
+        
+        if (shouldGoToOnboarding) {
+          console.log('🔀 Usuario nuevo, redirigiendo al onboarding');
+          router.replace('/onboarding/welcome');
+        } else {
+          console.log('✅ Usuario con perfil completo, redirigiendo a las tabs');
+          router.replace('/(tabs)');
+        }
       }
     } else {
       if (result.error === 'USERNAME_EXISTS') {

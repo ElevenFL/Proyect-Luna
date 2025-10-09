@@ -12,8 +12,8 @@ export interface Comment {
 
 export interface Story {
   id: string;
-  userId: string;
-  userName: string;
+  userId?: string;
+  userName?: string;
   userProfileImage?: string;
   content: {
     type: 'image' | 'text';
