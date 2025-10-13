@@ -47,7 +47,9 @@
         {
           "icon": "./assets/images/notification-icon.png",
           "color": "#ffffff",
-          "defaultChannel": "default"
+          "defaultChannel": "default",
+          "sounds": ["default"],
+          "mode": "default"
         }
       ]
     ],

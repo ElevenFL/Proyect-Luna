@@ -126,18 +126,14 @@ export default function UserStoriesGrid({ userId }: UserStoriesGridProps) {
           
           {/* Stats en la esquina inferior */}
           <View style={styles.statsContainer}>
-            {item.stats.views > 0 && (
-              <View style={styles.statItem}>
-                <Ionicons name="eye-outline" size={12} color="#FFFFFF" />
-                <Text style={styles.statText}>{item.stats.views}</Text>
-              </View>
-            )}
-            {item.stats.likes > 0 && (
-              <View style={styles.statItem}>
-                <Ionicons name="heart" size={12} color="#FF6B6B" />
-                <Text style={styles.statText}>{item.stats.likes}</Text>
-              </View>
-            )}
+            <View style={styles.statItem}>
+              <Ionicons name="eye-outline" size={12} color="#FFFFFF" />
+              <Text style={styles.statText}>{item.stats.views}</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Ionicons name="star" size={12} color="#FFD700" />
+              <Text style={styles.statText}>{item.stats.likes}</Text>
+            </View>
           </View>
         </View>
       </TouchableOpacity>

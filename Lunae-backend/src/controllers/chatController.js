@@ -1,4 +1,6 @@
 import Chat from '../models/Chat.js';
+import { PushNotificationService } from '../services/pushNotificationService.js';
+import { User } from '../models/Users.js';
 
 export const getOrCreateConversation = async (req, res) => {
   try {
@@ -145,6 +147,35 @@ export const sendMessage = async (req, res) => {
         });
       } else {
         console.log(`✅ Mensaje enviado a sala ${conversationId} con ${roomSize} usuarios`);
+      }
+
+      // Verificar si el receptor está conectado para enviar push notification
+      const receiverSockets = Array.from(io.sockets.sockets.values())
+        .filter(socket => socket.userId === String(receiverId));
+
+      // Si el receptor NO está conectado, enviar push notification
+      if (receiverSockets.length === 0) {
+        console.log(`📱 Receptor ${receiverId} offline, enviando push notification`);
+        
+        try {
+          // Obtener información del remitente
+          const sender = await User.findById(senderId);
+          const senderName = sender?.displayName || sender?.username || 'Alguien';
+          
+          // Enviar push notification
+          await PushNotificationService.sendNewMessageNotification(
+            receiverId,
+            senderName,
+            content,
+            conversationId,
+            senderId
+          );
+        } catch (pushError) {
+          console.error('❌ Error enviando push notification:', pushError);
+          // No interrumpir el flujo si falla el push
+        }
+      } else {
+        console.log(`✅ Receptor ${receiverId} está conectado (${receiverSockets.length} socket(s)), omitiendo push notification`);
       }
     } else {
       console.error('❌ Socket.IO no disponible para emitir mensaje');

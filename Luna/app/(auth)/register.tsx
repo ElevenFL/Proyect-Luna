@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
+import LuneaLogo from '@/components/LuneaLogo';
 
 export default function RegisterScreen() {
   const [username, setUsername] = useState('');
@@ -195,7 +196,9 @@ export default function RegisterScreen() {
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View style={styles.content}>
           {/* Logo */}
-          <Text style={styles.logo}>Lunae</Text>
+          <View style={styles.logoContainer}>
+            <LuneaLogo width={200} height={80} />
+          </View>
           <Text style={styles.title}>Signup</Text>
 
           {/* Username Input */}
@@ -382,11 +385,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 40,
   },
-  logo: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#FFD700',
-    textAlign: 'center',
+  logoContainer: {
+    alignItems: 'center',
     marginBottom: 10,
   },
   title: {

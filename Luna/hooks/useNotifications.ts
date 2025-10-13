@@ -182,18 +182,50 @@ export function useNotifications(config: NotificationConfig = {
     setInAppNotifications([]);
   }, []);
 
-  // Configurar listener para respuesta a notificaciones
+  // Configurar listener para notificaciones remotas (cuando llegan)
   useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener((response: Notifications.NotificationResponse) => {
-      const data = response.notification.request.content.data;
+    const receivedSubscription = Notifications.addNotificationReceivedListener((notification: Notifications.Notification) => {
+      console.log('📬 Notificación remota recibida:', notification);
       
+      const data = notification.request.content.data as any;
+      
+      // Manejar notificación según su tipo
       if (data.type === 'new-message' && data.conversationId) {
-        // Aquí se podría navegar automáticamente al chat
-        console.log('📱 Notificación de mensaje tocada:', data);
+        console.log('📨 Notificación de nuevo mensaje:', data);
+        // La notificación ya se mostrará automáticamente por el sistema
+        // Aquí podrías actualizar el estado de la app si es necesario
+      } else if (data.type === 'friend_request') {
+        console.log('👥 Notificación de solicitud de amistad:', data);
+      } else if (data.type === 'friend_request_accepted') {
+        console.log('✅ Notificación de solicitud aceptada:', data);
       }
     });
 
-    return () => subscription.remove();
+    return () => receivedSubscription.remove();
+  }, []);
+
+  // Configurar listener para respuesta a notificaciones (cuando se tocan)
+  useEffect(() => {
+    const responseSubscription = Notifications.addNotificationResponseReceivedListener((response: Notifications.NotificationResponse) => {
+      const data = response.notification.request.content.data as any;
+      
+      console.log('👆 Notificación tocada:', data);
+      
+      // Navegar según el tipo de notificación
+      if (data.type === 'new-message' && data.conversationId) {
+        console.log('📱 Navegando a chat:', data.conversationId);
+        // Aquí se podría usar el router para navegar
+        // router.push({ pathname: '/chat/[userId]', params: { userId: data.senderId } });
+      } else if (data.type === 'friend_request') {
+        console.log('📱 Navegando a notificaciones');
+        // router.push('/(tabs)/notifications');
+      } else if (data.type === 'friend_request_accepted') {
+        console.log('📱 Navegando a perfil del usuario:', data.accepterId);
+        // router.push({ pathname: '/user-profile', params: { userId: data.accepterId } });
+      }
+    });
+
+    return () => responseSubscription.remove();
   }, []);
 
   // Inicializar permisos

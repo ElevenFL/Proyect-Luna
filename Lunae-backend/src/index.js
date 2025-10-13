@@ -10,6 +10,7 @@ import imageRoutes from "./routes/imageRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
 import friendRequestRoutes from "./routes/friendRequestRoutes.js";
 import storiesRoutes from "./routes/storiesRoutes.js";
+import pushNotificationRoutes from "./routes/pushNotificationRoutes.js";
 
 dotenv.config();
 
@@ -74,6 +75,7 @@ app.use("/api/images", imageRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/friend-requests", friendRequestRoutes);
 app.use("/api/stories", storiesRoutes);
+app.use("/api/push-tokens", pushNotificationRoutes);
 
 // Middleware para rutas no encontradas
 app.use('*', (req, res) => {

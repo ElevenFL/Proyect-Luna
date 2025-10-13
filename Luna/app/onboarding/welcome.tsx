@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import { router } from 'expo-router';
+import LuneaLogo from '@/components/LuneaLogo';
 
 const { width, height } = Dimensions.get('window');
 
@@ -14,7 +15,7 @@ export default function WelcomeScreen() {
       {/* Content */}
       <View style={styles.content}>
         <View style={styles.logoContainer}>
-          <Text style={styles.logo}>Lunea</Text>
+          <LuneaLogo width={200} height={80} />
           <Text style={styles.welcomeText}>Welcome to the community.</Text>
         </View>
       </View>
@@ -53,11 +54,6 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     alignItems: 'center',
-  },
-  logo: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#FFD700',
     marginBottom: 20,
   },
   welcomeText: {
@@ -87,7 +83,7 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingBottom: 60,
   },
   button: {
     backgroundColor: '#FFD700',

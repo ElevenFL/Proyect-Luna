@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, StatusBar, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Image, ActivityIndicator, Alert, Keyboard } from 'react-native';
+import { View, Text, StyleSheet, StatusBar, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Image, ActivityIndicator, Alert, Keyboard, Modal } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, withTiming, withDelay, interpolate } from 'react-native-reanimated';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
@@ -10,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatProvider';
 import { ChatMessage } from '@/services/optimizedChatService';
 import { ImageService } from '@/services/imageService';
+import apiService from '@/services/apiService';
 
 /**
  * Componente de chat que usa el ChatProvider global para gestión de estado
@@ -73,6 +74,24 @@ const GlobalChatScreen = React.memo(() => {
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [oldestMessageId, setOldestMessageId] = useState<string | null>(null);
+  
+  // Estados para el menú de opciones
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [selectedReportCategory, setSelectedReportCategory] = useState<string | null>(null);
+  const [reportReason, setReportReason] = useState('');
+  const [showReportReasonForm, setShowReportReasonForm] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+
+  // Categorías de reporte
+  const reportCategories = [
+    { id: 'inappropriate', label: 'Contenido inapropiado', icon: 'warning-outline' },
+    { id: 'harassment', label: 'Acoso o intimidación', icon: 'alert-circle-outline' },
+    { id: 'spam', label: 'Spam o publicidad', icon: 'mail-outline' },
+    { id: 'fake', label: 'Perfil falso', icon: 'person-remove-outline' },
+    { id: 'suspicious', label: 'Comportamiento sospechoso', icon: 'eye-outline' },
+    { id: 'other', label: 'Otro', icon: 'ellipsis-horizontal-outline' },
+  ];
   
   const listRef = useRef<FlatList>(null);
   const currentUserId = useMemo(() => user?.id || user?.amplifySub || '', [user]);
@@ -648,6 +667,86 @@ const GlobalChatScreen = React.memo(() => {
     }
   }, [selectFromGallery, selectFromCamera, isUploadingImage]);
 
+  // Funciones para manejar reportes y bloqueos
+  const handleReport = () => {
+    setShowOptionsMenu(false);
+    setShowReportModal(true);
+    setShowReportReasonForm(false);
+    setSelectedReportCategory(null);
+    setReportReason('');
+  };
+
+  const handleReportCategory = (categoryId: string) => {
+    setSelectedReportCategory(categoryId);
+    setShowReportReasonForm(true);
+  };
+
+  const handleSubmitReport = async () => {
+    if (!selectedReportCategory || !otherUserId) return;
+    
+    setShowReportModal(false);
+    setShowReportReasonForm(false);
+    
+    try {
+      const response = await apiService.post(`/users/${otherUserId}/report`, {
+        category: selectedReportCategory,
+        reason: reportReason,
+      });
+      
+      if (response.success) {
+        console.log('Usuario reportado exitosamente:', otherUserId, 'Categoría:', selectedReportCategory);
+        Alert.alert('Reporte enviado', 'Gracias por tu reporte. Lo revisaremos pronto.');
+      } else {
+        console.error('Error en respuesta del servidor:', response.message);
+        Alert.alert('Error', 'No se pudo enviar el reporte. Inténtalo de nuevo.');
+      }
+    } catch (error) {
+      console.error('Error reportando usuario:', error);
+      Alert.alert('Error', 'No se pudo enviar el reporte. Inténtalo de nuevo.');
+    } finally {
+      setSelectedReportCategory(null);
+      setReportReason('');
+    }
+  };
+
+  const handleBackToCategories = () => {
+    setShowReportReasonForm(false);
+    setSelectedReportCategory(null);
+    setReportReason('');
+  };
+
+  const handleBlock = async () => {
+    setShowOptionsMenu(false);
+    
+    Alert.alert(
+      'Bloquear usuario',
+      '¿Estás seguro de que quieres bloquear a este usuario?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { 
+          text: 'Bloquear', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const response = await apiService.post(`/users/${otherUserId}/block`, {});
+              
+              if (response.success) {
+                console.log('Usuario bloqueado exitosamente:', otherUserId);
+                setIsBlocked(true);
+              } else {
+                console.error('Error en respuesta del servidor:', response.message);
+                Alert.alert('Error', 'No se pudo bloquear al usuario. Inténtalo de nuevo.');
+              }
+            } catch (error) {
+              console.error('Error bloqueando usuario:', error);
+              Alert.alert('Error', 'No se pudo bloquear al usuario. Inténtalo de nuevo.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   // Función para enviar mensaje usando ChatProvider
   const handleSend = useCallback(async () => {
     if (!conversationId || !input.trim() || isSending) return;
@@ -718,8 +817,8 @@ const GlobalChatScreen = React.memo(() => {
       }
     }
 
-    // Solo habilitar gestos en mensajes recientes para mejor performance
-    const panGesture = isRecentMessage ? Gesture.Pan()
+    // Solo habilitar gestos en mensajes recientes para mejor performance y si no está bloqueado
+    const panGesture = (isRecentMessage && !isBlocked) ? Gesture.Pan()
       .onUpdate((event) => {
         translateX.value = Math.max(-100, Math.min(100, event.translationX));
       })
@@ -913,8 +1012,129 @@ const GlobalChatScreen = React.memo(() => {
           </View>
         </TouchableOpacity>
         
-        <View style={{ width: 36 }} />
+        {/* Botón de opciones */}
+        <TouchableOpacity 
+          style={styles.optionsButton}
+          onPress={() => setShowOptionsMenu(!showOptionsMenu)}
+        >
+          <Ionicons name="ellipsis-vertical" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+
+        {/* Menú de opciones */}
+        {showOptionsMenu && (
+          <View style={styles.optionsMenu}>
+            <TouchableOpacity 
+              style={styles.optionItem}
+              onPress={handleReport}
+            >
+              <Ionicons name="flag-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.optionText}>Reportar</Text>
+            </TouchableOpacity>
+            <View style={styles.optionDivider} />
+            <TouchableOpacity 
+              style={styles.optionItem}
+              onPress={handleBlock}
+            >
+              <Ionicons name="ban-outline" size={20} color="#FF4458" />
+              <Text style={[styles.optionText, { color: '#FF4458' }]}>Bloquear</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
+
+      {/* Modal de categorías de reporte */}
+      <Modal
+        visible={showReportModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowReportModal(false)}
+        statusBarTranslucent={true}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowReportModal(false)}
+        >
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.modalContent}
+          >
+            <View style={styles.reportModal}>
+              <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+                {!showReportReasonForm ? (
+                  // Pantalla de selección de categoría
+                  <>
+                    <View style={styles.reportHeader}>
+                      <Text style={styles.reportTitle}>Reportar usuario</Text>
+                      <TouchableOpacity onPress={() => setShowReportModal(false)}>
+                        <Ionicons name="close" size={24} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                    
+                    <Text style={styles.reportSubtitle}>
+                      Selecciona el motivo del reporte:
+                    </Text>
+
+                    <View style={styles.reportCategoriesContainer}>
+                      {reportCategories.map((category) => (
+                        <TouchableOpacity
+                          key={category.id}
+                          style={styles.reportCategoryItem}
+                          onPress={() => handleReportCategory(category.id)}
+                        >
+                          <Ionicons name={category.icon as any} size={24} color="#F9C80E" />
+                          <Text style={styles.reportCategoryText}>{category.label}</Text>
+                          <Ionicons name="chevron-forward" size={20} color="#999999" />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </>
+                ) : (
+                  // Pantalla de razón del reporte
+                  <>
+                    <View style={styles.reportHeader}>
+                      <TouchableOpacity onPress={handleBackToCategories} style={styles.backIconButton}>
+                        <Ionicons name="chevron-back" size={24} color="#F9C80E" />
+                      </TouchableOpacity>
+                      <Text style={styles.reportTitle}>Describe el reporte</Text>
+                      <TouchableOpacity onPress={() => setShowReportModal(false)}>
+                        <Ionicons name="close" size={24} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                    
+                    <Text style={styles.reportSubtitle}>
+                      Categoría: {reportCategories.find(c => c.id === selectedReportCategory)?.label}
+                    </Text>
+
+                    <Text style={styles.reportReasonLabel}>
+                      Describe la razón del reporte:
+                    </Text>
+
+                    <TextInput
+                      style={styles.reportReasonInput}
+                      placeholder="Escribe aquí los detalles..."
+                      placeholderTextColor="#666666"
+                      value={reportReason}
+                      onChangeText={setReportReason}
+                      multiline
+                      numberOfLines={5}
+                      textAlignVertical="top"
+                    />
+
+                    <TouchableOpacity 
+                      style={[styles.submitReportButton, !reportReason.trim() && styles.submitReportButtonDisabled]}
+                      onPress={handleSubmitReport}
+                      disabled={!reportReason.trim()}
+                    >
+                      <Text style={styles.submitReportButtonText}>Enviar reporte</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </TouchableOpacity>
+      </Modal>
 
         {/* Lista de mensajes optimizada */}
         <FlatList
@@ -972,7 +1192,7 @@ const GlobalChatScreen = React.memo(() => {
         />
 
         {/* Input de respuesta */}
-        {replyingTo && (
+        {replyingTo && !isBlocked && (
           <View style={[
             styles.replyContainer,
             { 
@@ -1017,6 +1237,16 @@ const GlobalChatScreen = React.memo(() => {
             </TouchableOpacity>
           </View>
         )}
+
+        {/* Mensaje de bloqueo */}
+        {isBlocked && (
+          <View style={styles.blockedContainer}>
+            <Ionicons name="ban" size={24} color="#FF4458" />
+            <Text style={styles.blockedText}>
+              Has bloqueado a este usuario. No puedes enviar mensajes.
+            </Text>
+          </View>
+        )}
         
         <View style={[
           styles.inputBar,
@@ -1028,8 +1258,8 @@ const GlobalChatScreen = React.memo(() => {
         ]}>
           <TouchableOpacity 
             onPress={pickImage} 
-            disabled={isUploadingImage}
-            style={[styles.imageBtn, { opacity: isUploadingImage ? 0.5 : 1 }]}
+            disabled={isUploadingImage || isBlocked}
+            style={[styles.imageBtn, { opacity: (isUploadingImage || isBlocked) ? 0.5 : 1 }]}
           >
             {isUploadingImage ? (
               <ActivityIndicator size="small" color="#F9C80E" />
@@ -1040,29 +1270,30 @@ const GlobalChatScreen = React.memo(() => {
           <TextInput
             value={input}
             onChangeText={setInput}
-            placeholder={replyingTo ? "Escribe tu respuesta..." : "Escribe un mensaje..."}
+            placeholder={isBlocked ? "No puedes enviar mensajes" : (replyingTo ? "Escribe tu respuesta..." : "Escribe un mensaje...")}
             placeholderTextColor="#888"
-            style={styles.textInput}
+            style={[styles.textInput, isBlocked && styles.textInputDisabled]}
             multiline
             maxLength={1000}
             returnKeyType="send"
             blurOnSubmit={false}
+            editable={!isBlocked}
             onFocus={() => {
               // Hacer scroll al final cuando el usuario toca el input
               setTimeout(() => scrollToEnd(true), 300);
             }}
             onSubmitEditing={() => {
-              if (input.trim()) {
+              if (input.trim() && !isBlocked) {
                 handleSend();
               }
             }}
           />
           <TouchableOpacity 
             onPress={handleSend} 
-            disabled={isSending || !input.trim()} 
-            style={[styles.sendBtn, { opacity: input.trim() ? 1 : 0.5 }]}
+            disabled={isSending || !input.trim() || isBlocked} 
+            style={[styles.sendBtn, { opacity: (input.trim() && !isBlocked) ? 1 : 0.5 }]}
           >
-            <Ionicons name="send" size={20} color={input.trim() ? '#F9C80E' : '#F9C80E'} />
+            <Ionicons name="send" size={20} color={(input.trim() && !isBlocked) ? '#F9C80E' : '#F9C80E'} />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -1432,6 +1663,166 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  optionsButton: {
+    marginTop: 5,
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  optionsMenu: {
+    position: 'absolute',
+    top: 60,
+    right: 12,
+    backgroundColor: 'rgba(30, 30, 30, 0.98)',
+    borderRadius: 12,
+    paddingVertical: 8,
+    minWidth: 160,
+    zIndex: 10,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  optionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  optionText: {
+    fontSize: 16,
+    color: '#FFFFFF',
+    marginLeft: 12,
+    fontWeight: '500',
+  },
+  optionDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginHorizontal: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  reportModal: {
+    backgroundColor: '#1E1E1E',
+    borderRadius: 16,
+    width: 360,
+    maxWidth: '90%',
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  reportHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  reportTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  reportSubtitle: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    marginBottom: 20,
+  },
+  reportCategoriesContainer: {
+    gap: 8,
+  },
+  reportCategoryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  reportCategoryText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#FFFFFF',
+    marginLeft: 12,
+    fontWeight: '500',
+  },
+  backIconButton: {
+    padding: 4,
+  },
+  reportReasonLabel: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  reportReasonInput: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 12,
+    color: '#FFFFFF',
+    fontSize: 16,
+    minHeight: 120,
+    marginBottom: 20,
+  },
+  submitReportButton: {
+    backgroundColor: '#F9C80E',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  submitReportButtonDisabled: {
+    backgroundColor: 'rgba(249, 200, 14, 0.3)',
+  },
+  submitReportButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  blockedContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(255, 68, 88, 0.1)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 68, 88, 0.3)',
+  },
+  blockedText: {
+    color: '#FF4458',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 12,
+    textAlign: 'center',
+    flex: 1,
+  },
+  textInputDisabled: {
+    opacity: 0.5,
+    backgroundColor: '#1F1F1F',
   },
 });
 

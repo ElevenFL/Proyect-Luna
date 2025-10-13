@@ -7,8 +7,11 @@ import { useAuth } from '@/contexts/AuthContext';
 export default function SettingsScreen() {
   const { user, logout } = useAuth();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [darkModeEnabled, setDarkModeEnabled] = useState(true);
+  const [hiddenModeEnabled, setHiddenModeEnabled] = useState(false);
+  
+  // TODO: Obtener el estado pro del usuario desde el backend
+  // Por ahora, se establece como false hasta que se implemente
+  const isProUser = false;
 
   const handleLogout = () => {
     Alert.alert(
@@ -42,7 +45,8 @@ export default function SettingsScreen() {
     subtitle, 
     onPress, 
     showArrow = true,
-    rightComponent
+    rightComponent,
+    isPro = false
   }: { 
     icon: any; 
     title: string; 
@@ -50,6 +54,7 @@ export default function SettingsScreen() {
     onPress?: () => void;
     showArrow?: boolean;
     rightComponent?: React.ReactNode;
+    isPro?: boolean;
   }) => (
     <TouchableOpacity 
       style={styles.settingItem} 
@@ -61,7 +66,14 @@ export default function SettingsScreen() {
           <Ionicons name={icon} size={22} color="#FFD700" />
         </View>
         <View style={styles.settingTextContainer}>
-          <Text style={styles.settingTitle}>{title}</Text>
+          <View style={styles.titleWithBadgeRow}>
+            <Text style={styles.settingTitle}>{title}</Text>
+            {isPro && (
+              <View style={styles.proBadge}>
+                <Text style={styles.proBadgeText}>PRO</Text>
+              </View>
+            )}
+          </View>
           {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
         </View>
       </View>
@@ -76,27 +88,39 @@ export default function SettingsScreen() {
     title, 
     subtitle, 
     value, 
-    onValueChange 
+    onValueChange,
+    isPro = false,
+    disabled = false
   }: { 
     icon: any; 
     title: string; 
     subtitle?: string; 
     value: boolean;
     onValueChange: (value: boolean) => void;
+    isPro?: boolean;
+    disabled?: boolean;
   }) => (
-    <View style={styles.settingItem}>
+    <View style={[styles.settingItem, disabled && styles.settingItemDisabled]}>
       <View style={styles.settingItemLeft}>
         <View style={styles.iconContainer}>
-          <Ionicons name={icon} size={22} color="#FFD700" />
+          <Ionicons name={icon} size={22} color={disabled ? "#999999" : "#FFD700"} />
         </View>
         <View style={styles.settingTextContainer}>
-          <Text style={styles.settingTitle}>{title}</Text>
-          {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
+          <View style={styles.titleWithBadgeRow}>
+            <Text style={[styles.settingTitle, disabled && styles.settingTitleDisabled]}>{title}</Text>
+            {isPro && (
+              <View style={styles.proBadge}>
+                <Text style={styles.proBadgeText}>PRO</Text>
+              </View>
+            )}
+          </View>
+          {subtitle && <Text style={[styles.settingSubtitle, disabled && styles.settingSubtitleDisabled]}>{subtitle}</Text>}
         </View>
       </View>
       <Switch
         value={value}
-        onValueChange={onValueChange}
+        onValueChange={disabled ? () => Alert.alert('Función PRO', 'Esta función solo está disponible para usuarios PRO. Actualiza tu cuenta para acceder.') : onValueChange}
+        disabled={disabled}
         trackColor={{ false: '#767577', true: '#FFD700' }}
         thumbColor={value ? '#FFFFFF' : '#f4f3f4'}
       />
@@ -117,7 +141,7 @@ export default function SettingsScreen() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          <Ionicons name="chevron-back" size={24} color="#F9C80E" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Configuración</Text>
         <View style={styles.headerSpacer} />
@@ -128,30 +152,27 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Información de la cuenta */}
-        <SectionHeader title="CUENTA" />
+        {/* Configuración general */}
+        <SectionHeader title="GENERAL" />
         <View style={styles.section}>
-          <SettingItem
-            icon="person-outline"
-            title="Información del perfil"
-            subtitle={user?.email || ''}
-            onPress={() => router.back()}
-          />
-          <SettingItem
-            icon="shield-checkmark-outline"
-            title="Privacidad y seguridad"
-            onPress={() => Alert.alert('Privacidad', 'Función en desarrollo')}
-          />
           <SettingItem
             icon="key-outline"
             title="Cambiar contraseña"
             onPress={() => Alert.alert('Contraseña', 'Función en desarrollo')}
           />
-        </View>
-
-        {/* Notificaciones */}
-        <SectionHeader title="NOTIFICACIONES" />
-        <View style={styles.section}>
+          <SettingToggle
+            icon="eye-off-outline"
+            title="Modo oculto"
+            subtitle="Oculta tu perfil de otros usuarios"
+            value={hiddenModeEnabled}
+            onValueChange={setHiddenModeEnabled}
+          />
+          <SettingItem
+            icon="remove-circle-outline"
+            title="Quitar anuncios"
+            subtitle="Disfruta de una experiencia sin publicidad"
+            onPress={() => Alert.alert('Función PRO', 'Esta función solo está disponible para usuarios PRO. Actualiza tu cuenta para acceder.')}
+          />
           <SettingToggle
             icon="notifications-outline"
             title="Notificaciones push"
@@ -159,45 +180,11 @@ export default function SettingsScreen() {
             value={notificationsEnabled}
             onValueChange={setNotificationsEnabled}
           />
-          <SettingToggle
-            icon="volume-high-outline"
-            title="Sonidos"
-            subtitle="Reproducir sonidos de notificación"
-            value={soundEnabled}
-            onValueChange={setSoundEnabled}
-          />
-        </View>
-
-        {/* Apariencia */}
-        <SectionHeader title="APARIENCIA" />
-        <View style={styles.section}>
-          <SettingToggle
-            icon="moon-outline"
-            title="Modo oscuro"
-            subtitle="Tema oscuro activado"
-            value={darkModeEnabled}
-            onValueChange={setDarkModeEnabled}
-          />
           <SettingItem
-            icon="color-palette-outline"
-            title="Tema de color"
-            onPress={() => Alert.alert('Tema', 'Función en desarrollo')}
-          />
-        </View>
-
-        {/* Almacenamiento */}
-        <SectionHeader title="ALMACENAMIENTO" />
-        <View style={styles.section}>
-          <SettingItem
-            icon="trash-outline"
-            title="Limpiar caché"
-            subtitle="Liberar espacio de almacenamiento"
-            onPress={() => Alert.alert('Caché', 'Función en desarrollo')}
-          />
-          <SettingItem
-            icon="download-outline"
-            title="Gestionar descargas"
-            onPress={() => Alert.alert('Descargas', 'Función en desarrollo')}
+            icon="language-outline"
+            title="Idioma de la app"
+            subtitle="Español"
+            onPress={() => Alert.alert('Idioma', 'Función en desarrollo')}
           />
         </View>
 
@@ -205,14 +192,9 @@ export default function SettingsScreen() {
         <SectionHeader title="SOPORTE" />
         <View style={styles.section}>
           <SettingItem
-            icon="help-circle-outline"
-            title="Centro de ayuda"
-            onPress={() => Alert.alert('Ayuda', 'Función en desarrollo')}
-          />
-          <SettingItem
-            icon="chatbubble-outline"
-            title="Contactar soporte"
-            onPress={() => Alert.alert('Soporte', 'Función en desarrollo')}
+            icon="bug-outline"
+            title="Informar de un error"
+            onPress={() => Alert.alert('Informar error', 'Función en desarrollo')}
           />
           <SettingItem
             icon="document-text-outline"
@@ -263,7 +245,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(0, 0, 0, 0)',
   },
   headerTitle: {
     fontSize: 20,
@@ -283,7 +265,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#999999',
-    marginTop: 24,
+    marginTop: 10,
     marginBottom: 8,
     marginLeft: 4,
   },
@@ -310,7 +292,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 215, 0, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -324,9 +305,35 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginBottom: 2,
   },
+  settingTitleDisabled: {
+    color: '#666666',
+  },
   settingSubtitle: {
     fontSize: 13,
     color: '#999999',
+  },
+  settingSubtitleDisabled: {
+    color: '#555555',
+  },
+  settingItemDisabled: {
+    opacity: 0.6,
+  },
+  titleWithBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  proBadge: {
+    backgroundColor: '#FFD700',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  proBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#000000',
+    letterSpacing: 0.5,
   },
   logoutButton: {
     flexDirection: 'row',
@@ -335,7 +342,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 59, 48, 0.1)',
     borderRadius: 12,
     paddingVertical: 16,
-    marginTop: 32,
+    marginTop: 20,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 59, 48, 0.3)',
   },
@@ -349,6 +357,7 @@ const styles = StyleSheet.create({
     height: 40,
   },
 });
+
 
 
 

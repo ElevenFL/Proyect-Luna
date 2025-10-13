@@ -8,6 +8,7 @@ import ApiService from '../services/apiService';
 import optimizedChatService from '../services/optimizedChatService';
 import { smartLog } from '../config/logging';
 import backgroundSyncService from '../services/backgroundSyncService';
+import { PushNotificationService } from '../services/pushNotificationService';
 
 interface User {
   id: string;
@@ -413,6 +414,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ImageService.setAuthToken(accessToken);
         }
         
+        // Registrar push token para notificaciones
+        try {
+          const pushToken = await PushNotificationService.registerForPushNotifications(userData.id);
+          if (pushToken) {
+            smartLog.info('AuthContext: Push token registrado exitosamente');
+          } else {
+            smartLog.warn('AuthContext: No se pudo registrar push token (permisos denegados o error)');
+          }
+        } catch (pushError) {
+          smartLog.error('AuthContext: Error registrando push token:', pushError);
+          // No interrumpir el flujo de login si falla el registro de push token
+        }
+        
         // Inicializar servicios de chat con sincronización en segundo plano
         try {
           await optimizedChatService.initialize(userData.id);
@@ -666,11 +680,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       smartLog.info('AuthContext: Iniciando proceso de logout...');
       
-      // 1. Cerrar sesión en AWS Amplify
+      // 1. Desregistrar push token antes de cerrar sesión
+      if (user?.id) {
+        try {
+          await PushNotificationService.unregisterAllUserTokens();
+          smartLog.info('AuthContext: Push tokens desregistrados');
+        } catch (pushError) {
+          smartLog.error('AuthContext: Error desregistrando push tokens:', pushError);
+          // No interrumpir el logout si falla la desregistración
+        }
+      }
+      
+      // 2. Cerrar sesión en AWS Amplify
       await Auth.signOut();
       smartLog.info('AuthContext: Sesión de Amplify cerrada');
       
-      // 2. Limpiar estado local
+      // 3. Limpiar estado local
       setUser(null);
       setToken(null);
       smartLog.info('AuthContext: Estado local limpiado');

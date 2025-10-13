@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, StatusBar, TouchableOpacity, Dimensions, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, StatusBar, TouchableOpacity, Dimensions, ScrollView, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -63,10 +63,25 @@ export default function UserProfileScreen() {
   const [showMatchAnimation, setShowMatchAnimation] = useState(false);
   const [isMatch, setIsMatch] = useState(false);
   const [completeUserData, setCompleteUserData] = useState<any>(null);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [selectedReportCategory, setSelectedReportCategory] = useState<string | null>(null);
+  const [reportReason, setReportReason] = useState('');
+  const [showReportReasonForm, setShowReportReasonForm] = useState(false);
   
   // Cache simple para evitar llamadas repetidas
   const [cacheTimestamp, setCacheTimestamp] = useState(0);
   const CACHE_DURATION = 30000; // 30 segundos
+
+  // Categorías de reporte
+  const reportCategories = [
+    { id: 'inappropriate', label: 'Contenido inapropiado', icon: 'warning-outline' },
+    { id: 'harassment', label: 'Acoso o intimidación', icon: 'alert-circle-outline' },
+    { id: 'spam', label: 'Spam o publicidad', icon: 'mail-outline' },
+    { id: 'fake', label: 'Perfil falso', icon: 'person-remove-outline' },
+    { id: 'suspicious', label: 'Comportamiento sospechoso', icon: 'eye-outline' },
+    { id: 'other', label: 'Otro', icon: 'ellipsis-horizontal-outline' },
+  ];
 
   // Cargar información completa del usuario si faltan datos
   useEffect(() => {
@@ -289,6 +304,69 @@ export default function UserProfileScreen() {
       .slice(0, 2);
   };
 
+  const handleReport = () => {
+    setShowOptionsMenu(false);
+    setShowReportModal(true);
+    setShowReportReasonForm(false);
+    setSelectedReportCategory(null);
+    setReportReason('');
+  };
+
+  const handleReportCategory = (categoryId: string) => {
+    setSelectedReportCategory(categoryId);
+    setShowReportReasonForm(true);
+  };
+
+  const handleSubmitReport = async () => {
+    if (!selectedReportCategory) return;
+    
+    setShowReportModal(false);
+    setShowReportReasonForm(false);
+    
+    try {
+      const response = await apiService.post(`/users/${user.id}/report`, {
+        category: selectedReportCategory,
+        reason: reportReason,
+      });
+      
+      if (response.success) {
+        console.log('Usuario reportado exitosamente:', user.name, 'Categoría:', selectedReportCategory);
+        // Aquí podrías mostrar una notificación de éxito
+      } else {
+        console.error('Error en respuesta del servidor:', response.message);
+      }
+    } catch (error) {
+      console.error('Error reportando usuario:', error);
+    } finally {
+      // Resetear estados
+      setSelectedReportCategory(null);
+      setReportReason('');
+    }
+  };
+
+  const handleBackToCategories = () => {
+    setShowReportReasonForm(false);
+    setSelectedReportCategory(null);
+    setReportReason('');
+  };
+
+  const handleBlock = async () => {
+    setShowOptionsMenu(false);
+    try {
+      const response = await apiService.post(`/users/${user.id}/block`, {});
+      
+      if (response.success) {
+        console.log('Usuario bloqueado exitosamente:', user.name);
+        // Regresar a la pantalla anterior después de bloquear
+        router.back();
+      } else {
+        console.error('Error en respuesta del servidor:', response.message);
+      }
+    } catch (error) {
+      console.error('Error bloqueando usuario:', error);
+    }
+  };
+
   // Función para determinar el color y estado del corazón
   const getHeartState = () => {
     if (isMatch) {
@@ -361,6 +439,100 @@ export default function UserProfileScreen() {
         </View>
       )}
 
+      {/* Modal de categorías de reporte */}
+      <Modal
+        visible={showReportModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowReportModal(false)}
+        statusBarTranslucent={true}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowReportModal(false)}
+        >
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.modalContent}
+          >
+            <View style={styles.reportModal}>
+              <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+                {!showReportReasonForm ? (
+                  // Pantalla de selección de categoría
+                  <>
+                    <View style={styles.reportHeader}>
+                      <Text style={styles.reportTitle}>Reportar usuario</Text>
+                      <TouchableOpacity onPress={() => setShowReportModal(false)}>
+                        <Ionicons name="close" size={24} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                    
+                    <Text style={styles.reportSubtitle}>
+                      Selecciona el motivo del reporte:
+                    </Text>
+
+                    <View style={styles.reportCategoriesContainer}>
+                      {reportCategories.map((category) => (
+                        <TouchableOpacity
+                          key={category.id}
+                          style={styles.reportCategoryItem}
+                          onPress={() => handleReportCategory(category.id)}
+                        >
+                          <Ionicons name={category.icon as any} size={24} color="#F9C80E" />
+                          <Text style={styles.reportCategoryText}>{category.label}</Text>
+                          <Ionicons name="chevron-forward" size={20} color="#999999" />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </>
+                ) : (
+                  // Pantalla de razón del reporte
+                  <>
+                    <View style={styles.reportHeader}>
+                      <TouchableOpacity onPress={handleBackToCategories} style={styles.backIconButton}>
+                        <Ionicons name="chevron-back" size={24} color="#F9C80E" />
+                      </TouchableOpacity>
+                      <Text style={styles.reportTitle}>Describe el reporte</Text>
+                      <TouchableOpacity onPress={() => setShowReportModal(false)}>
+                        <Ionicons name="close" size={24} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                    
+                    <Text style={styles.reportSubtitle}>
+                      Categoría: {reportCategories.find(c => c.id === selectedReportCategory)?.label}
+                    </Text>
+
+                    <Text style={styles.reportReasonLabel}>
+                      Describe la razón del reporte:
+                    </Text>
+
+                    <TextInput
+                      style={styles.reportReasonInput}
+                      placeholder="Escribe aquí los detalles..."
+                      placeholderTextColor="#666666"
+                      value={reportReason}
+                      onChangeText={setReportReason}
+                      multiline
+                      numberOfLines={5}
+                      textAlignVertical="top"
+                    />
+
+                    <TouchableOpacity 
+                      style={[styles.submitReportButton, !reportReason.trim() && styles.submitReportButtonDisabled]}
+                      onPress={handleSubmitReport}
+                      disabled={!reportReason.trim()}
+                    >
+                      <Text style={styles.submitReportButtonText}>Enviar reporte</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </TouchableOpacity>
+      </Modal>
+
       <ScrollView 
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -398,6 +570,35 @@ export default function UserProfileScreen() {
 
           {/* Gradiente sutil inferior */}
           <LinearGradient colors={["transparent", "rgba(0,0,0,0.25)"]} style={styles.gradientOverlay} />
+
+          {/* Botón de opciones (3 puntos verticales) */}
+          <TouchableOpacity 
+            style={styles.optionsButton}
+            onPress={() => setShowOptionsMenu(!showOptionsMenu)}
+          >
+            <Ionicons name="ellipsis-vertical" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+
+          {/* Menú de opciones */}
+          {showOptionsMenu && (
+            <View style={styles.optionsMenu}>
+              <TouchableOpacity 
+                style={styles.optionItem}
+                onPress={handleReport}
+              >
+                <Ionicons name="flag-outline" size={20} color="#FFFFFF" />
+                <Text style={styles.optionText}>Reportar</Text>
+              </TouchableOpacity>
+              <View style={styles.optionDivider} />
+              <TouchableOpacity 
+                style={styles.optionItem}
+                onPress={handleBlock}
+              >
+                <Ionicons name="ban-outline" size={20} color="#FF4458" />
+                <Text style={[styles.optionText, { color: '#FF4458' }]}>Bloquear</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* Fila de acciones */}
@@ -601,5 +802,146 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
     textAlign: 'center',
+  },
+  optionsButton: {
+    position: 'absolute',
+    top: 4,
+    right: 2,
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  optionsMenu: {
+    position: 'absolute',
+    top: 44,
+    right: 4,
+    backgroundColor: 'rgba(30, 30, 30, 0.98)',
+    borderRadius: 12,
+    paddingVertical: 8,
+    minWidth: 160,
+    zIndex: 10,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  optionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  optionText: {
+    fontSize: 16,
+    color: '#FFFFFF',
+    marginLeft: 12,
+    fontWeight: '500',
+  },
+  optionDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginHorizontal: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  reportModal: {
+    backgroundColor: '#1E1E1E',
+    borderRadius: 16,
+    width: 360,
+    maxWidth: '90%',
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  reportHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  reportTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  reportSubtitle: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    marginBottom: 20,
+  },
+  reportCategoriesContainer: {
+    gap: 8,
+  },
+  reportCategoryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  reportCategoryText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#FFFFFF',
+    marginLeft: 12,
+    fontWeight: '500',
+  },
+  backIconButton: {
+    padding: 4,
+  },
+  reportReasonLabel: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  reportReasonInput: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 12,
+    color: '#FFFFFF',
+    fontSize: 16,
+    minHeight: 120,
+    marginBottom: 20,
+  },
+  submitReportButton: {
+    backgroundColor: '#F9C80E',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  submitReportButtonDisabled: {
+    backgroundColor: 'rgba(249, 200, 14, 0.3)',
+  },
+  submitReportButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000000',
   },
 });

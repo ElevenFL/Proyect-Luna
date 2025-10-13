@@ -5,6 +5,7 @@ import { auth } from "../middleware/auth.js";
 import { getFlagFromAddress } from "../utils/countryFlags.js";
 import { giveSuperLike, checkSuperLikeStatus, giveLike, checkLikeStatus, getReceivedLikes } from "../controllers/profileController.js";
 import { sendFriendRequest } from "../controllers/friendRequestController.js";
+import { reportUser, getUserReports, blockUser } from "../controllers/reportController.js";
 import { FriendRequest } from "../models/FriendRequest.js";
 import { Chat } from "../models/Chat.js";
 
@@ -893,6 +894,15 @@ router.get('/received-likes', auth, getReceivedLikes);
 
 // POST /api/users/:userId/friend-request - Enviar solicitud de amistad
 router.post('/:userId/friend-request', auth, sendFriendRequest);
+
+// POST /api/users/:userId/report - Reportar un usuario
+router.post('/:userId/report', auth, reportUser);
+
+// GET /api/users/:userId/reports - Obtener reportes de un usuario
+router.get('/:userId/reports', auth, getUserReports);
+
+// POST /api/users/:userId/block - Bloquear un usuario
+router.post('/:userId/block', auth, blockUser);
 
 // GET usuario por ID (debe ir al final para evitar conflictos con rutas específicas)
 router.get("/:userId", auth, async (req, res) => {
