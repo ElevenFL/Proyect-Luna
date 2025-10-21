@@ -226,3 +226,9 @@ El sistema está **100% implementado y funcional**. Solo necesitas:
 - Logs del backend con `npm run dev`
 - Logs de la app con `npx expo start`
 
+
+
+
+
+
+

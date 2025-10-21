@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "305090861402",
-    "project_id": "lunea-f9853",
-    "storage_bucket": "lunea-f9853.firebasestorage.app"
+    "project_number": "613951942479",
+    "project_id": "lunea-fl",
+    "storage_bucket": "lunea-fl.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:305090861402:android:9c986e8089fd7a3f7ebb63",
+        "mobilesdk_app_id": "1:613951942479:android:e895e5305d73b8c259df3a",
         "android_client_info": {
           "package_name": "com.eleven.lunae"
         }
@@ -15,7 +15,26 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBK3Pm21qHSSPjj5Ix4kGiXwL1_jEWRY6s"
+          "current_key": "AIzaSyBbliagyLb0OSPlODwSE9OoT_YBwC4UHTI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:613951942479:android:342d1b643a2d3c2059df3a",
+        "android_client_info": {
+          "package_name": "com.eleven.lunea"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBbliagyLb0OSPlODwSE9OoT_YBwC4UHTI"
         }
       ],
       "services": {

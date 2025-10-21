@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import ApiService from './apiService';
+import FirebaseMessagingService from './firebaseMessagingService';
 
 /**
  * Servicio para gestionar Push Notifications en el frontend
@@ -9,59 +10,36 @@ export class PushNotificationService {
   private static pushToken: string | null = null;
 
   /**
-   * Registra el dispositivo para recibir push notifications
+   * Registra el dispositivo para recibir push notifications usando FCM
    */
   static async registerForPushNotifications(userId: string): Promise<string | null> {
     try {
-      console.log('📱 Registrando push notifications para usuario:', userId);
+      console.log('📱 Registrando push notifications con FCM para usuario:', userId);
 
-      // Solicitar permisos
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
+      // Inicializar Firebase Cloud Messaging
+      await FirebaseMessagingService.initialize();
 
-      // Si no tiene permisos, solicitarlos
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-
-      // Si no se concedieron los permisos, retornar null
-      if (finalStatus !== 'granted') {
-        console.warn('⚠️ Permisos de notificación denegados');
+      // Obtener el token FCM
+      const fcmToken = await FirebaseMessagingService.getFCMToken();
+      
+      if (!fcmToken) {
+        console.warn('⚠️ No se pudo obtener el token FCM');
         return null;
       }
 
-      // Obtener el token de Expo Push
-      const tokenData = await Notifications.getExpoPushTokenAsync({
-        projectId: '14e249c5-a3bb-4284-94ad-8d6d6b0d04f3', // ID del proyecto desde app.json
-      });
-
-      const token = tokenData.data;
-      console.log('✅ Push token obtenido:', token);
-
       // Guardar el token localmente
-      this.pushToken = token;
+      this.pushToken = fcmToken;
 
-      // Registrar el token en el backend
-      try {
-        const response = await ApiService.post('/push-tokens/register', {
-          userId,
-          pushToken: token,
-          platform: Platform.OS,
-          deviceId: token, // Usar el token como deviceId por ahora
-        });
-
-        if (response.success) {
-          console.log('✅ Push token registrado en el backend exitosamente');
-        } else {
-          console.error('❌ Error registrando push token en el backend:', response.message);
-        }
-      } catch (backendError) {
-        console.error('❌ Error de red registrando push token:', backendError);
-        // No lanzar error, el token local sigue siendo válido
+      // Registrar el token FCM en el backend
+      const success = await FirebaseMessagingService.registerTokenInBackend(userId);
+      
+      if (success) {
+        console.log('✅ Token FCM registrado exitosamente');
+      } else {
+        console.error('❌ Error registrando token FCM en el backend');
       }
 
-      return token;
+      return fcmToken;
     } catch (error) {
       console.error('❌ Error registrando push notifications:', error);
       return null;
@@ -78,19 +56,15 @@ export class PushNotificationService {
         return false;
       }
 
-      console.log('🗑️ Desregistrando push token para usuario:', userId);
+      console.log('🗑️ Desregistrando push token FCM para usuario:', userId);
 
-      const response = await ApiService.post('/push-tokens/unregister', {
-        userId,
-        pushToken: this.pushToken,
-      });
-
-      if (response.success) {
-        console.log('✅ Push token desregistrado exitosamente');
+      const success = await FirebaseMessagingService.unregisterToken(userId);
+      
+      if (success) {
         this.pushToken = null;
         return true;
       } else {
-        console.error('❌ Error desregistrando push token:', response.message);
+        console.error('❌ Error desregistrando push token FCM');
         return false;
       }
     } catch (error) {
@@ -195,8 +169,7 @@ export class PushNotificationService {
    */
   static async areNotificationsEnabled(): Promise<boolean> {
     try {
-      const { status } = await Notifications.getPermissionsAsync();
-      return status === 'granted';
+      return await FirebaseMessagingService.areNotificationsEnabled();
     } catch (error) {
       console.error('❌ Error verificando permisos de notificaciones:', error);
       return false;

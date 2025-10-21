@@ -253,3 +253,9 @@ R: No, las push notifications solo funcionan en dispositivos físicos.
 
 **📚 Ver análisis completo**: `ANALISIS_NOTIFICACIONES.md`
 
+
+
+
+
+
+

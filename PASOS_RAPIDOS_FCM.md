@@ -150,3 +150,9 @@ npx expo start
 
 **¡En 5 minutos tendrás las notificaciones push funcionando! 🎉**
 
+
+
+
+
+
+
